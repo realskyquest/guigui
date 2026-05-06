@@ -7,7 +7,6 @@ import (
 	"image"
 	"iter"
 	"math"
-	"slices"
 
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
@@ -133,9 +132,9 @@ func TextPositionFromIndexInLogicalLine(width int, logicalLine string, index int
 	if index < 0 || index > len(logicalLine) {
 		return TextPosition{}, TextPosition{}, 0
 	}
-	return textPositionFromIndex(width, logicalLine, slices.Collect(visualLinesFromLogicalLine(width, logicalLine, options.AutoWrap, func(s string) float64 {
+	return textPositionFromIndex(width, logicalLine, visualLinesFromLogicalLine(width, logicalLine, options.AutoWrap, func(s string) float64 {
 		return advance(s, options.Face, options.TabWidth, options.KeepTailingSpace)
-	})), index, options)
+	}), index, options)
 }
 
 // TextIndexFromPositionInLogicalLine returns the byte offset within one logical line
