@@ -4,6 +4,7 @@
 package basicwidget_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/guigui-gui/guigui/basicwidget"
@@ -172,6 +173,100 @@ func TestTopItemAfterPixelScroll(t *testing.T) {
 			if gotIdx != tc.wantIndex || gotOff != tc.wantOffset {
 				t.Errorf("TopItemAfterPixelScroll start=(%d,%d) delta=%d => (%d,%d); want (%d,%d)",
 					tc.startIndex, tc.startOffset, tc.deltaPx, gotIdx, gotOff, tc.wantIndex, tc.wantOffset)
+			}
+		})
+	}
+}
+
+func TestBottomFracIdx(t *testing.T) {
+	uniform := func(n, h int) []int {
+		s := make([]int, n)
+		for i := range s {
+			s[i] = h
+		}
+		return s
+	}
+
+	testCases := []struct {
+		name           string
+		heights        []int
+		viewportHeight int
+		want           float64
+	}{
+		{
+			name:           "empty list",
+			heights:        nil,
+			viewportHeight: 100,
+			want:           0,
+		},
+		{
+			name:           "zero viewport",
+			heights:        uniform(10, 20),
+			viewportHeight: 0,
+			want:           0,
+		},
+		{
+			name:           "content fits without scrolling",
+			heights:        uniform(5, 20),
+			viewportHeight: 200,
+			want:           0,
+		},
+		{
+			// 5 items fit in the viewport, so the canonical-bottom top
+			// item is index 5 with offset 0.
+			name:           "uniform heights, exact viewport-multiple",
+			heights:        uniform(10, 20),
+			viewportHeight: 100,
+			want:           5,
+		},
+		{
+			// At canonical bottom, the last item's bottom hits the
+			// viewport bottom; walking up by 95px lands 5px above the
+			// top of item 5. topIdx=5, topOff=-5, fracIdx=5.25.
+			name:           "uniform heights, mid-item bottom",
+			heights:        uniform(10, 20),
+			viewportHeight: 95,
+			want:           5.25,
+		},
+		{
+			// Single item taller than the viewport: max fracIdx is the
+			// fraction of the item scrolled off-screen at canonical bottom.
+			name:           "single tall item",
+			heights:        []int{500},
+			viewportHeight: 200,
+			want:           0.6,
+		},
+		{
+			// One huge item dominates the average. The old
+			// totalCount - viewport/avgH approximation gave ~6.17 here,
+			// well above any reachable fracIdx, so the thumb saturated
+			// partway down the track even at canonical bottom.
+			name:           "tall item among small ones",
+			heights:        []int{30, 30, 30, 1000, 30, 30, 30, 30, 30, 30, 30},
+			viewportHeight: 570,
+			want:           3 + 640.0/1000.0,
+		},
+		{
+			// Zero-height items at the tail are walked past without
+			// consuming viewport space, so the canonical top is the
+			// first non-zero ancestor.
+			name:           "zero-height items at tail",
+			heights:        []int{20, 20, 20, 20, 20, 0, 0},
+			viewportHeight: 60,
+			want:           2,
+		},
+	}
+
+	const epsilon = 1e-9
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			measure := func(i int) int {
+				return tc.heights[i]
+			}
+			got := basicwidget.BottomFracIdx(measure, len(tc.heights), tc.viewportHeight)
+			if math.Abs(got-tc.want) > epsilon {
+				t.Errorf("BottomFracIdx(viewport=%d) = %v; want %v",
+					tc.viewportHeight, got, tc.want)
 			}
 		})
 	}

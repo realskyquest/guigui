@@ -41,6 +41,13 @@ type virtualScrollContent interface {
 	// must be >= 0; zero is a valid height (e.g. a collapsed or empty
 	// item). For an out-of-range index the implementation must return -1.
 	measureItemHeight(context *guigui.Context, index int) int
+
+	// viewportPaddingY returns the total vertical padding the content
+	// reserves inside the panel viewport (e.g. rounded-corner padding for
+	// lists, top/bottom padding for text). The panel subtracts this when
+	// computing the canonical bottom fracIdx so the thumb at the track
+	// bottom matches the layout's actual settled max-scroll position.
+	viewportPaddingY(context *guigui.Context) int
 }
 
 // virtualScrollPanel is a scroll panel that uses virtual scrolling: instead
@@ -572,6 +579,49 @@ func (p *virtualScrollPanel) vThumbHeight(context *guigui.Context, panelBounds i
 	return max(barHeight, scrollThumbStrokeWidth(context))
 }
 
+// bottomFracIdx returns the fracIdx reached when the last item's bottom
+// aligns with the viewport bottom. Used to map the scroll-bar track length
+// to the actual scrollable range.
+func (p *virtualScrollPanel) bottomFracIdx(context *guigui.Context, viewportHeight int) float64 {
+	totalCount := p.content.itemCount()
+	measure := func(i int) int {
+		return p.content.measureItemHeight(context, i)
+	}
+	return bottomFracIdx(measure, totalCount, viewportHeight-p.content.viewportPaddingY(context))
+}
+
+// bottomFracIdx is the free-function core of
+// [virtualScrollPanel.bottomFracIdx], split out so tests can drive it
+// without a panel instance. measure must return -1 for out-of-range
+// indices and a non-negative height otherwise.
+func bottomFracIdx(measure func(index int) int, totalCount, viewportHeight int) float64 {
+	if totalCount == 0 || viewportHeight <= 0 {
+		return 0
+	}
+	var accum int
+	idx := totalCount - 1
+	var h int
+	for idx >= 0 {
+		h = measure(idx)
+		if h < 0 {
+			return 0
+		}
+		accum += h
+		if accum >= viewportHeight {
+			break
+		}
+		idx--
+	}
+	if accum < viewportHeight {
+		return 0
+	}
+	if h <= 0 {
+		return float64(idx)
+	}
+	topOff := viewportHeight - accum
+	return float64(idx) + float64(-topOff)/float64(h)
+}
+
 func (p *virtualScrollPanel) thumbBounds(context *guigui.Context, widgetBounds *guigui.WidgetBounds) (image.Rectangle, image.Rectangle) {
 	bounds := widgetBounds.Bounds()
 	padding := scrollThumbPadding(context)
@@ -612,10 +662,10 @@ func (p *virtualScrollPanel) thumbBounds(context *guigui.Context, widgetBounds *
 		if h := p.content.measureItemHeight(context, p.topItemIndex); h > 0 {
 			fracIdx += float64(-p.topItemOffset) / float64(h)
 		}
-		scrollMaxItems := float64(totalCount) - float64(bounds.Dy())/float64(p.estimatedItemHeight)
+		maxFracIdx := p.bottomFracIdx(context, bounds.Dy())
 		var rate float64
-		if scrollMaxItems > 0 {
-			rate = min(max(fracIdx/scrollMaxItems, 0), 1)
+		if maxFracIdx > 0 {
+			rate = min(max(fracIdx/maxFracIdx, 0), 1)
 		}
 		y0 := float64(bounds.Min.Y) + padding + rate*(float64(bounds.Dy())-2*padding-barHeight)
 		y1 := y0 + barHeight
@@ -750,21 +800,19 @@ func (s *virtualScrollVBar) HandlePointingInput(context *guigui.Context, widgetB
 		if dy != 0 && trackHeight > 0 {
 			// Map cursor drag to a fractional-index delta, the inverse of
 			// the forward formula in [virtualScrollPanel.thumbBounds]:
-			// the full track length corresponds to scrollMaxItems items.
-			estH := s.panel.estimatedItemHeight
-			scrollMaxItems := float64(totalCount) - float64(bounds.Dy())/float64(estH)
-			if scrollMaxItems > 0 {
+			// the full track length corresponds to maxFracIdx items.
+			maxFracIdx := s.panel.bottomFracIdx(context, s.panelBoundsRect.Dy())
+			if maxFracIdx > 0 {
 				startFrac := float64(s.draggingStartIndex)
 				if h := s.panel.content.measureItemHeight(context, s.draggingStartIndex); h > 0 {
 					startFrac += float64(-s.draggingStartOffset) / float64(h)
 				}
-				newFrac := startFrac + float64(dy)*scrollMaxItems/trackHeight
+				newFrac := startFrac + float64(dy)*maxFracIdx/trackHeight
 				if newFrac < 0 {
 					newFrac = 0
 				}
-				maxFrac := float64(totalCount - 1)
-				if newFrac > maxFrac {
-					newFrac = maxFrac
+				if newFrac > maxFracIdx {
+					newFrac = maxFracIdx
 				}
 				newIdx := int(newFrac)
 				if newIdx >= totalCount {

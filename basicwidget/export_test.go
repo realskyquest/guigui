@@ -11,6 +11,10 @@ func TopItemAfterPixelScroll(measure func(index int) int, totalCount, startIndex
 	return topItemAfterPixelScroll(measure, totalCount, startIndex, startOffset, deltaPx)
 }
 
+func BottomFracIdx(measure func(index int) int, totalCount, viewportHeight int) float64 {
+	return bottomFracIdx(measure, totalCount, viewportHeight)
+}
+
 type AbstractListValuer[T comparable] interface {
 	valuer[T]
 }

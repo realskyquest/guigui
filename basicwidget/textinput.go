@@ -853,6 +853,11 @@ func (t *textInputText) itemCount() int {
 	return txt.lineByteOffsets.LineCount()
 }
 
+// viewportPaddingY implements [virtualScrollContent.viewportPaddingY].
+func (t *textInputText) viewportPaddingY(_ *guigui.Context) int {
+	return t.padding.Top + t.padding.Bottom
+}
+
 // measureItemHeight implements [virtualScrollContent]. Returns the rendered
 // height of one logical line at the panel's current content width, cached
 // for the lifetime of the current virtualized Layout.

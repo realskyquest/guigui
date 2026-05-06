@@ -717,6 +717,11 @@ func (l *listContent[T]) contentWidth(_ *guigui.Context) int {
 	return 0
 }
 
+// viewportPaddingY implements [virtualScrollContent.viewportPaddingY].
+func (l *listContent[T]) viewportPaddingY(context *guigui.Context) int {
+	return 2 * RoundedCornerRadius(context)
+}
+
 func (l *listContent[T]) SetBackground(widget guigui.Widget) {
 	l.customBackground = widget
 }
@@ -859,6 +864,7 @@ func (l *listContent[T]) Build(context *guigui.Context, adder *guigui.ChildAdder
 		topIdx = len(availableIndices)
 	}
 	appBoundsHeight := context.AppBounds().Dy()
+	_, topOff := l.listPanel.topItem()
 
 	// Find the end of the downward range [topIdx, hi).
 	hi := topIdx
@@ -867,7 +873,16 @@ func (l *listContent[T]) Build(context *guigui.Context, adder *guigui.ChildAdder
 		i := availableIndices[ai]
 		item, _ := l.abstractList.ItemByIndex(i)
 		h := item.Content.Measure(context, guigui.Constraints{}).Y
-		downH += h + item.Padding.Top + item.Padding.Bottom
+		visibleH := h + item.Padding.Top + item.Padding.Bottom
+		if ai == topIdx && topOff < 0 {
+			// The topItem may be scrolled partially (or fully) above the
+			// viewport top. Only the portion below the viewport top is
+			// visible, so subsequent items can still be in view even when
+			// h alone would exceed appBoundsHeight (e.g. one tall item that
+			// has been scrolled almost off the top).
+			visibleH = max(0, visibleH+topOff)
+		}
+		downH += visibleH
 		hi = ai + 1
 		if downH >= appBoundsHeight {
 			break
