@@ -95,6 +95,13 @@ func (t *TooltipArea) Layout(context *guigui.Context, widgetBounds *guigui.Widge
 	layouter.LayoutWidget(&t.popup, tooltipBounds)
 }
 
+// Measure implements [guigui.Widget.Measure].
+func (t *TooltipArea) Measure(context *guigui.Context, constraints guigui.Constraints) image.Point {
+	// Returning zero keeps a TooltipArea from contributing an unexpected size when used as an item
+	// in a layout such as LinearLayout, which would otherwise pick up the inherited DefaultWidget size.
+	return image.Point{}
+}
+
 // HandlePointingInput implements [guigui.Widget.HandlePointingInput].
 func (t *TooltipArea) HandlePointingInput(context *guigui.Context, widgetBounds *guigui.WidgetBounds) guigui.HandleInputResult {
 	cursorPos := image.Pt(ebiten.CursorPosition())

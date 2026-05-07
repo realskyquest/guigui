@@ -55,6 +55,13 @@ func (c *ContextMenuArea[T]) Layout(context *guigui.Context, widgetBounds *guigu
 	})
 }
 
+// Measure implements [guigui.Widget.Measure].
+func (c *ContextMenuArea[T]) Measure(context *guigui.Context, constraints guigui.Constraints) image.Point {
+	// Returning zero keeps a ContextMenuArea from contributing an unexpected size when used as an item
+	// in a layout such as LinearLayout, which would otherwise pick up the inherited DefaultWidget size.
+	return image.Point{}
+}
+
 // HandlePointingInput implements [guigui.Widget.HandlePointingInput].
 func (c *ContextMenuArea[T]) HandlePointingInput(context *guigui.Context, widgetBounds *guigui.WidgetBounds) guigui.HandleInputResult {
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
