@@ -283,11 +283,18 @@ func (p *virtualScrollPanel) forceSetTopItem(index, offset int, cancelAnimation 
 // effects (e.g. list's expand-animation scaling). For content without such
 // effects, the wrapped function just returns the real height.
 //
-// The other walks (normalize forward/backward, bottom-clamp backward gap-
-// fill) use content.measureItemHeight directly. They anchor the scroll
-// state (topItemIndex) to real item positions, so the anchor stays put
-// while items animate around it; only the bottom-clamp's forward
-// detection cares about the apparent visible height.
+// The normalize walks (forward/backward) and the bottom-clamp's backward
+// gap-fill use content.measureItemHeight, with one exception: during a
+// scroll animation the normalize walks substitute estimatedItemHeight to
+// avoid re-measuring every item the eased pixel delta passes over (autoWrap
+// text shapes each line). The settling Layout (vAnimCount == 0) reconciles
+// via real heights. The bottom-clamp's backward gap-fill always uses real
+// heights so last-line alignment stays exact even mid-animation.
+//
+// The other walks anchor the scroll state (topItemIndex) to real item
+// positions so the anchor stays put while items animate around it; only the
+// bottom-clamp's forward detection here cares about the apparent visible
+// height.
 //
 // viewportInner is the content area height — panel bounds minus any padding
 // the content reserves (i.e. content.viewportPaddingY).
@@ -309,8 +316,14 @@ func (p *virtualScrollPanel) layoutTopItem(context *guigui.Context, viewportInne
 		offset = 0
 	}
 
+	measure := func(i int) int {
+		if p.vAnimCount > 0 && p.estimatedItemHeight > 0 {
+			return p.estimatedItemHeight
+		}
+		return p.content.measureItemHeight(context, i)
+	}
 	for offset < 0 && idx < n-1 {
-		ih := p.content.measureItemHeight(context, idx)
+		ih := measure(idx)
 		if -offset >= ih {
 			offset += ih
 			idx++
@@ -320,7 +333,7 @@ func (p *virtualScrollPanel) layoutTopItem(context *guigui.Context, viewportInne
 	}
 	for offset > 0 && idx > 0 {
 		idx--
-		offset -= p.content.measureItemHeight(context, idx)
+		offset -= measure(idx)
 	}
 	if idx == 0 && offset > 0 {
 		offset = 0
