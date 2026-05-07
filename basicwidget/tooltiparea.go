@@ -50,6 +50,7 @@ func (t *TooltipArea) Build(context *guigui.Context, adder *guigui.ChildAdder) e
 
 	t.popup.SetContent(&t.tooltipContent)
 	t.popup.SetModal(false)
+	t.popup.setAutoCloseOnOtherOpen(true)
 
 	// Defer showing until Build so that Layout positions the tooltip correctly
 	// before it becomes visible, avoiding a flash at a stale position.

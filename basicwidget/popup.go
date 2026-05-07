@@ -5,6 +5,7 @@ package basicwidget
 
 import (
 	"image"
+	"slices"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -19,6 +20,10 @@ var (
 	popupEventOpen  guigui.EventKey = guigui.GenerateEventKey()
 	popupEventClose guigui.EventKey = guigui.GenerateEventKey()
 )
+
+// autoClosePopups holds inner popups configured via [Popup.setAutoCloseOnOtherOpen].
+// When any popup transitions to the showing state, the others in this list are closed.
+var autoClosePopups []*popup
 
 func easeOutQuad(t float64) float64 {
 	// https://greweb.me/2012/02/bezier-curve-based-easing-functions-from-concept-to-implementation
@@ -50,6 +55,7 @@ const (
 	PopupCloseReasonFuncCall
 	PopupCloseReasonClickOutside
 	PopupCloseReasonReopen
+	PopupCloseReasonAuto
 )
 
 // Popup is a widget that displays its content on a separate layer.
@@ -87,6 +93,10 @@ func (p *Popup) SetOpen(open bool) {
 
 func (p *Popup) IsOpen() bool {
 	return p.popup.Widget().IsOpen()
+}
+
+func (p *Popup) setAutoCloseOnOtherOpen(autoClose bool) {
+	p.popup.Widget().setAutoCloseOnOtherOpen(autoClose)
 }
 
 func (p *Popup) OnClose(f func(context *guigui.Context, reason PopupCloseReason)) {
@@ -186,6 +196,8 @@ type popup struct {
 	openAfterClose                     bool
 	contentBounds                      image.Rectangle
 	drawerEdge                         DrawerEdge
+
+	autoCloseOnOtherOpen bool
 }
 
 func (p *popup) WriteStateKey(w *guigui.StateKeyWriter) {
@@ -216,6 +228,23 @@ func (p *popup) setStyle(style popupStyle) {
 
 func (p *popup) IsOpen() bool {
 	return p.showing || p.hiding || p.openingCount > 0 || p.toOpen
+}
+
+func (p *popup) setAutoCloseOnOtherOpen(autoClose bool) {
+	if p.autoCloseOnOtherOpen == autoClose {
+		return
+	}
+	p.autoCloseOnOtherOpen = autoClose
+	if autoClose {
+		autoClosePopups = append(autoClosePopups, p)
+		return
+	}
+	for i, q := range autoClosePopups {
+		if q == p {
+			autoClosePopups = slices.Delete(autoClosePopups, i, i+1)
+			return
+		}
+	}
 }
 
 func (p *popup) setOnOpen(f func(context *guigui.Context)) {
@@ -424,6 +453,15 @@ func (p *popup) SetOpen(open bool) {
 	}
 	p.toOpen = toOpen
 	p.toClose = toClose
+	if open {
+		for _, q := range autoClosePopups {
+			if q == p {
+				continue
+			}
+			q.setCloseReason(PopupCloseReasonAuto)
+			q.SetOpen(false)
+		}
+	}
 	// A closed popup is typically gated out of its parent's Build, so the
 	// state-key-based auto-rebuild doesn't fire when it's not in the tree.
 	// RequestRebuild falls back to rebuilding the root in that case.
