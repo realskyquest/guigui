@@ -74,35 +74,25 @@ type TextPositionFromIndexParams struct {
 	VisualLineIndexHint  int
 }
 
-// TextPositionFromIndex returns the visual position(s) corresponding
-// to p.Index in the rendering text. When p.LineByteOffsets is supplied,
-// the visual-line walk is localized: it starts from
-// (p.LogicalLineIndexHint, p.VisualLineIndexHint) and steps forward
-// (or backward) one logical line at a time, measuring per-line wrap
-// counts, until it reaches the logical line containing p.Index. With
-// the hint placed inside the viewport the cost is O(visible logical
-// lines) per query, instead of the O(documentLen) full scan the
-// sidecar-less fallback performs.
-//
-// When an active IME composition splices into the rendering text, the
-// committed-text sidecar is reused: byte/visual-line shifts derived
-// from [ComputeCompositionInfo] map between committed and rendering
-// coordinates without rebuilding the sidecar. Falls back to the
-// unrestricted whole-document walk when the composition crosses a
-// logical-line boundary, when no sidecar is supplied, or when the
-// document is empty. The fallback is observationally equivalent to
-// the fast path.
-func TextPositionFromIndex(p *TextPositionFromIndexParams) (position0, position1 TextPosition, count int) {
+// resolveCursorLine maps p.Index to its committed logical-line index and
+// shapes that one line. slowPath=true tells the caller to fall back to the
+// unrestricted walk: no sidecar, empty document, or composition straddles a
+// logical-line boundary. count==0 with slowPath=false means the index was
+// out of range. m is non-nil iff count > 0.
+func resolveCursorLine(p *TextPositionFromIndexParams) (
+	m *lineMeasurer, committedLineIdx, indexInLine int,
+	pos0, pos1 TextPosition, count int, slowPath bool,
+) {
 	index := p.Index
 	if index < 0 || index > p.RenderingTextLength {
-		return TextPosition{}, TextPosition{}, 0
+		return nil, 0, 0, TextPosition{}, TextPosition{}, 0, false
 	}
 	if p.LineByteOffsets == nil {
-		return textPositionFromIndex(p.Width, p.RenderingTextRange(0, p.RenderingTextLength), nil, index, p.Options)
+		return nil, 0, 0, TextPosition{}, TextPosition{}, 0, true
 	}
 	n := p.LineByteOffsets.LineCount()
 	if n == 0 {
-		return textPositionFromIndex(p.Width, p.RenderingTextRange(0, p.RenderingTextLength), nil, index, p.Options)
+		return nil, 0, 0, TextPosition{}, TextPosition{}, 0, true
 	}
 
 	// Resolve composition shifts so the committed-text sidecar is
@@ -126,10 +116,10 @@ func TextPositionFromIndex(p *TextPositionFromIndexParams) (position0, position1
 		}
 		// The selection-line slices are only valid when the selection
 		// lies inside a single logical line; otherwise ce+byteDelta
-		// underflows. When the selection crosses lines we leave them
+		// underflows. When the selection crosses lines the slices stay
 		// empty — [ComputeCompositionInfo]'s own multi-line check
 		// returns false before reading them, and the caller falls back
-		// below.
+		// to the slow path.
 		var committedSelectionLine, renderingSelectionLine string
 		if p.Options.AutoWrap && p.LineByteOffsets.LineIndexForByteOffset(p.SelectionEnd) == selectionLineIdx {
 			committedSelectionLine = p.CommittedTextRange(cs, ce)
@@ -154,7 +144,7 @@ func TextPositionFromIndex(p *TextPositionFromIndexParams) (position0, position1
 			// Composition straddles a logical-line boundary: the
 			// committed sidecar's logical-line shape doesn't match
 			// the rendering text. Fall back to the unrestricted walk.
-			return textPositionFromIndex(p.Width, p.RenderingTextRange(0, p.RenderingTextLength), nil, index, p.Options)
+			return nil, 0, 0, TextPosition{}, TextPosition{}, 0, true
 		}
 		compInfo = info
 		hasComp = true
@@ -166,7 +156,6 @@ func TextPositionFromIndex(p *TextPositionFromIndexParams) (position0, position1
 	// The composition replaces committed[sStart:sEnd] with rendering
 	// bytes [compStart, compRenderingEnd); lines on either side are
 	// unaffected other than a constant byte shift past the splice.
-	var committedLineIdx int
 	if hasComp {
 		switch {
 		case index < compStart:
@@ -185,7 +174,7 @@ func TextPositionFromIndex(p *TextPositionFromIndexParams) (position0, position1
 		committedTextLen -= compInfo.RenderingByteShift
 	}
 
-	m := &lineMeasurer{
+	m = &lineMeasurer{
 		offsets:            p.LineByteOffsets,
 		logicalLineCount:   n,
 		committedTextLen:   committedTextLen,
@@ -200,12 +189,28 @@ func TextPositionFromIndex(p *TextPositionFromIndexParams) (position0, position1
 
 	renderingLineStart, renderingLineEnd := m.renderingRange(committedLineIdx)
 	line := p.RenderingTextRange(renderingLineStart, renderingLineEnd)
-	indexInLine := index - renderingLineStart
+	indexInLine = index - renderingLineStart
 
-	pos0, pos1, c := TextPositionFromIndexInLogicalLine(p.Width, line, indexInLine, p.Options)
+	pos0, pos1, count = TextPositionFromIndexInLogicalLine(p.Width, line, indexInLine, p.Options)
+	if count == 0 {
+		return nil, 0, 0, TextPosition{}, TextPosition{}, 0, false
+	}
+	return m, committedLineIdx, indexInLine, pos0, pos1, count, false
+}
+
+// TextPositionFromIndex returns the visual position(s) for p.Index in the
+// rendering text. The Y origin is the visual line at
+// (p.LogicalLineIndexHint, p.VisualLineIndexHint); count is 1, or 2 at line-
+// break boundaries.
+func TextPositionFromIndex(p *TextPositionFromIndexParams) (position0, position1 TextPosition, count int) {
+	m, committedLineIdx, indexInLine, pos0, pos1, c, slowPath := resolveCursorLine(p)
+	if slowPath {
+		return textPositionFromIndex(p.Width, p.RenderingTextRange(0, p.RenderingTextLength), nil, p.Index, p.Options)
+	}
 	if c == 0 {
 		return TextPosition{}, TextPosition{}, 0
 	}
+	n := p.LineByteOffsets.LineCount()
 
 	// visualLineIndexAt walks from the caller-supplied hint to
 	// targetLine, accumulating per-line wrap counts so the result
