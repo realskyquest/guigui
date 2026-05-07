@@ -930,6 +930,9 @@ func (a *app) drawWidget(screen *ebiten.Image) {
 	if dst.Bounds() != a.regionsToDraw {
 		dst = screen.RecyclableSubImage(a.regionsToDraw)
 	}
+	// Clear the redraw region so pixels no widget overdraws don't keep stale contents
+	// from the previous frame.
+	dst.Clear()
 	for _, layer := range a.layers {
 		a.doDrawWidget(dst, a.root, layer)
 	}
