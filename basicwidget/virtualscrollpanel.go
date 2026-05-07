@@ -277,24 +277,15 @@ func (p *virtualScrollPanel) forceSetTopItem(index, offset int, cancelAnimation 
 // aligns with the viewport content bottom rather than leaving a gap.
 //
 // apparentItemHeight returns the per-item height as it appears in the
-// viewport right now, used by the bottom-clamp's forward detection walk to
-// decide whether the visible content actually fills the viewport. Callers
-// wrap [virtualScrollContent.measureItemHeight] to apply per-item visual
-// effects (e.g. list's expand-animation scaling). For content without such
-// effects, the wrapped function just returns the real height.
+// viewport right now — callers wrap [virtualScrollContent.measureItemHeight]
+// to apply per-item visual effects (e.g. list's expand-animation scaling).
+// For content without such effects, the wrapped function just returns the
+// real height.
 //
-// The normalize walks (forward/backward) and the bottom-clamp's backward
-// gap-fill use content.measureItemHeight, with one exception: during a
-// scroll animation the normalize walks substitute estimatedItemHeight to
-// avoid re-measuring every item the eased pixel delta passes over (autoWrap
-// text shapes each line). The settling Layout (vAnimCount == 0) reconciles
-// via real heights. The bottom-clamp's backward gap-fill always uses real
-// heights so last-line alignment stays exact even mid-animation.
-//
-// The other walks anchor the scroll state (topItemIndex) to real item
-// positions so the anchor stays put while items animate around it; only the
-// bottom-clamp's forward detection here cares about the apparent visible
-// height.
+// During a scroll animation the normalize walks substitute
+// estimatedItemHeight to avoid re-measuring every item the eased pixel
+// delta passes over (autoWrap text shapes each line). The settling Layout
+// (vAnimCount == 0) goes through apparentItemHeight again.
 //
 // viewportInner is the content area height — panel bounds minus any padding
 // the content reserves (i.e. content.viewportPaddingY).
@@ -320,7 +311,7 @@ func (p *virtualScrollPanel) layoutTopItem(context *guigui.Context, viewportInne
 		if p.vAnimCount > 0 && p.estimatedItemHeight > 0 {
 			return p.estimatedItemHeight
 		}
-		return p.content.measureItemHeight(context, i)
+		return apparentItemHeight(i)
 	}
 	for offset < 0 && idx < n-1 {
 		ih := measure(idx)
@@ -355,7 +346,7 @@ func (p *virtualScrollPanel) layoutTopItem(context *guigui.Context, viewportInne
 			offset += gap
 			for offset > 0 && idx > 0 {
 				idx--
-				offset -= p.content.measureItemHeight(context, idx)
+				offset -= apparentItemHeight(idx)
 			}
 			if idx == 0 && offset > 0 {
 				offset = 0
