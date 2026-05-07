@@ -289,8 +289,7 @@ func (s *Slider) setValue(context *guigui.Context, widgetBounds *guigui.WidgetBo
 
 	var v big.Int
 	if s.snapOnly && s.hasSnaps() && s.abstractNumberInput.step.Sign() > 0 {
-		// Pick the snap whose tick is nearest to the cursor. Floor-dividing the
-		// continuous value shrinks the last snap's click zone to one pixel.
+		// Pick the snap whose tick is nearest the cursor.
 		step := &s.abstractNumberInput.step
 		var num, tmp big.Int
 		num.Sub(max, min)
@@ -308,9 +307,13 @@ func (s *Slider) setValue(context *guigui.Context, widgetBounds *guigui.WidgetBo
 		v.Mul(&snapIndex, step)
 		v.Add(&v, min)
 	} else {
-		v.Sub(max, min)
-		v.Mul(&v, big.NewInt(int64(c.X-originX)))
-		v.Div(&v, big.NewInt(barWidth))
+		// Round to the nearest integer so each integer value's click zone is
+		// centered on its tick. Truncating would push every zone to the left,
+		// shrinking the rightmost value's zone to a sliver at the bar end.
+		var num big.Int
+		num.Sub(max, min)
+		num.Mul(&num, big.NewInt(int64(c.X-originX)))
+		roundDivBigInt(&v, &num, big.NewInt(barWidth))
 		v.Add(&v, originValue)
 	}
 	s.abstractNumberInput.SetValueBigInt(&v, true)
