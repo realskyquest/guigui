@@ -18,7 +18,7 @@ import (
 // cleared. Parity tests use this to drive the unrestricted whole-document
 // fallback inside [textutil.TextPositionFromIndex] as the reference value
 // they compare the sidecar-accelerated path against.
-func withoutSidecar(p *textutil.TextPositionFromIndexParams) *textutil.TextPositionFromIndexParams {
+func withoutSidecar(p *textutil.TextPositionParams) *textutil.TextPositionParams {
 	q := *p
 	q.LineByteOffsets = nil
 	q.LogicalLineIndexHint = 0
@@ -69,7 +69,7 @@ func TestTextPositionFromIndex(t *testing.T) {
 	// Baseline: position at index 0 of a single-line string sits on visual
 	// line 0. Use it to derive line N's Top without hard-coding the face's
 	// vertical padding.
-	baseline, _, _ := textutil.TextPositionFromIndex(&textutil.TextPositionFromIndexParams{
+	baseline, _, _ := textutil.TextPositionFromIndex(&textutil.TextPositionParams{
 		Index:               0,
 		RenderingTextRange:  func(start, end int) string { return "a"[start:end] },
 		RenderingTextLength: 1,
@@ -149,7 +149,7 @@ func TestTextPositionFromIndex(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			pos0, pos1, count := textutil.TextPositionFromIndex(&textutil.TextPositionFromIndexParams{
+			pos0, pos1, count := textutil.TextPositionFromIndex(&textutil.TextPositionParams{
 				Index:               tc.index,
 				RenderingTextRange:  func(start, end int) string { return tc.text[start:end] },
 				RenderingTextLength: len(tc.text),
@@ -221,7 +221,7 @@ func TestTextPositionFromIndexSidecarParity(t *testing.T) {
 				}
 				var l textutil.LineByteOffsets
 				rebuildFromString(&l, tc.str)
-				params := &textutil.TextPositionFromIndexParams{
+				params := &textutil.TextPositionParams{
 					RenderingTextRange:  func(start, end int) string { return tc.str[start:end] },
 					RenderingTextLength: len(tc.str),
 					Width:               width,
@@ -268,7 +268,7 @@ func TestTextPositionFromIndexSidecarAutoWrap(t *testing.T) {
 
 	var l textutil.LineByteOffsets
 	rebuildFromString(&l, str)
-	params := &textutil.TextPositionFromIndexParams{
+	params := &textutil.TextPositionParams{
 		RenderingTextRange:  func(start, end int) string { return str[start:end] },
 		RenderingTextLength: len(str),
 		Width:               narrowWidth,
@@ -323,7 +323,7 @@ func TestTextPositionFromIndexViewportRelativeHint(t *testing.T) {
 			for _, firstVisible := range []int{0, 1, 10, 30, 49} {
 				offset := float64(precVL(firstVisible)) * lineHeight
 				for _, idx := range []int{0, 1, 5, 30, 60, len(str) - 1, len(str)} {
-					params := &textutil.TextPositionFromIndexParams{
+					params := &textutil.TextPositionParams{
 						Index:                idx,
 						RenderingTextRange:   func(start, end int) string { return str[start:end] },
 						RenderingTextLength:  len(str),
@@ -410,7 +410,7 @@ func TestTextPositionFromIndexSidecarComposition(t *testing.T) {
 				}
 				var l textutil.LineByteOffsets
 				rebuildFromString(&l, tc.committed)
-				params := &textutil.TextPositionFromIndexParams{
+				params := &textutil.TextPositionParams{
 					RenderingTextRange:  func(start, end int) string { return rendering[start:end] },
 					RenderingTextLength: len(rendering),
 					Width:               width,
@@ -459,7 +459,7 @@ func TestTextPositionFromIndexSidecarCompositionWithLineBreak(t *testing.T) {
 
 	var l textutil.LineByteOffsets
 	rebuildFromString(&l, committed)
-	params := &textutil.TextPositionFromIndexParams{
+	params := &textutil.TextPositionParams{
 		RenderingTextRange:  func(start, end int) string { return rendering[start:end] },
 		RenderingTextLength: len(rendering),
 		Width:               width,
@@ -498,7 +498,7 @@ func TestTextPositionFromIndexSidecarOutOfRange(t *testing.T) {
 	str := "abc"
 	var l textutil.LineByteOffsets
 	rebuildFromString(&l, str)
-	params := &textutil.TextPositionFromIndexParams{
+	params := &textutil.TextPositionParams{
 		RenderingTextRange:  func(start, end int) string { return str[start:end] },
 		RenderingTextLength: len(str),
 		Width:               math.MaxInt,
@@ -515,6 +515,114 @@ func TestTextPositionFromIndexSidecarOutOfRange(t *testing.T) {
 	}
 }
 
+// TestPositionWithinLogicalLineParity sweeps every byte index in a variety of
+// inputs and asserts that PositionWithinLogicalLine returns the same X and Y
+// as TextPositionFromIndex once the line's own Y offset is subtracted. The
+// hard-line-break corner case where TextPositionFromIndex collapses the
+// cursor's "tail of previous line" + "head of current line" into count=2 is
+// the one place the two functions disagree by design — the within-line
+// variant reports only count=1 at the head of the cursor's own logical line.
+func TestPositionWithinLogicalLineParity(t *testing.T) {
+	const lineHeight = 24.0
+	face := newTestFace(t)
+
+	cases := []struct {
+		name string
+		str  string
+	}{
+		{
+			name: "single line",
+			str:  "abc",
+		},
+		{
+			name: "two lines",
+			str:  "abc\ndef",
+		},
+		{
+			name: "three lines",
+			str:  "abc\ndef\nghi",
+		},
+		{
+			name: "trailing LF",
+			str:  "abc\n",
+		},
+		{
+			name: "multibyte",
+			str:  "一\n二\n三",
+		},
+		{
+			name: "only breaks",
+			str:  "\n\n\n",
+		},
+	}
+
+	for _, autoWrap := range []bool{false, true} {
+		for _, tc := range cases {
+			t.Run(tc.name+autoWrapSuffix(autoWrap), func(t *testing.T) {
+				const width = math.MaxInt
+				op := &textutil.Options{Face: face, LineHeight: lineHeight, AutoWrap: autoWrap}
+				var l textutil.LineByteOffsets
+				rebuildFromString(&l, tc.str)
+				precVL := precedingVisualLineCountFromString(tc.str, width, autoWrap, face, 0, false)
+				params := &textutil.TextPositionParams{
+					RenderingTextRange:  func(start, end int) string { return tc.str[start:end] },
+					RenderingTextLength: len(tc.str),
+					Width:               width,
+					Options:             op,
+					LineByteOffsets:     &l,
+				}
+
+				for idx := 0; idx <= len(tc.str); idx++ {
+					params.Index = idx
+					wantP0, wantP1, wantCount := textutil.TextPositionFromIndex(params)
+					gotLine, gotP0, gotP1, gotCount := textutil.PositionWithinLogicalLine(params)
+
+					if wantCount == 0 {
+						if gotCount != 0 {
+							t.Errorf("idx=%d: count=%d, want 0", idx, gotCount)
+						}
+						continue
+					}
+
+					off := float64(precVL(gotLine)) * lineHeight
+					adjust := func(p textutil.TextPosition) textutil.TextPosition {
+						p.Top -= off
+						p.Bottom -= off
+						return p
+					}
+
+					// Hard-line-break boundary: TextPositionFromIndex emits two
+					// positions spanning two logical lines. PositionWithinLogicalLine
+					// reports just the cursor's own line head — count drops to 1.
+					if wantCount == 2 && wantP1.Top > wantP0.Top {
+						if gotCount != 1 {
+							t.Errorf("idx=%d (cross-line c=2): got count=%d, want 1", idx, gotCount)
+							continue
+						}
+						if got, want := gotP0, adjust(wantP1); got != want {
+							t.Errorf("idx=%d: head pos=%+v, want %+v (line-relative)", idx, got, want)
+						}
+						continue
+					}
+
+					if gotCount != wantCount {
+						t.Errorf("idx=%d: count=%d, want %d", idx, gotCount, wantCount)
+						continue
+					}
+					if got, want := gotP0, adjust(wantP0); got != want {
+						t.Errorf("idx=%d: pos0=%+v, want %+v (line-relative)", idx, got, want)
+					}
+					if gotCount == 2 {
+						if got, want := gotP1, adjust(wantP1); got != want {
+							t.Errorf("idx=%d: pos1=%+v, want %+v (line-relative)", idx, got, want)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
 // TestTextPositionFromIndexNilSidecar verifies that nil LineByteOffsets
 // drives the unrestricted whole-document fallback (not a panic) and
 // produces results consistent with what the fallback would produce on
@@ -526,13 +634,13 @@ func TestTextPositionFromIndexNilSidecar(t *testing.T) {
 
 	str := "abc\ndef"
 	const width = math.MaxInt
-	params := &textutil.TextPositionFromIndexParams{
+	params := &textutil.TextPositionParams{
 		RenderingTextRange:  func(start, end int) string { return str[start:end] },
 		RenderingTextLength: len(str),
 		Width:               width,
 		Options:             op,
 	}
-	noSidecar := &textutil.TextPositionFromIndexParams{
+	noSidecar := &textutil.TextPositionParams{
 		RenderingTextRange:  func(start, end int) string { return str[start:end] },
 		RenderingTextLength: len(str),
 		Width:               width,

@@ -48,6 +48,7 @@ var (
 	textEventValueChanged            guigui.EventKey = guigui.GenerateEventKey()
 	textEventValueChangedWithoutText guigui.EventKey = guigui.GenerateEventKey()
 	textEventScrollDelta             guigui.EventKey = guigui.GenerateEventKey()
+	textEventScrollIntoView          guigui.EventKey = guigui.GenerateEventKey()
 )
 
 func isMouseButtonRepeating(button ebiten.MouseButton) bool {
@@ -288,6 +289,14 @@ func (t *Text) OnHandleButtonInput(f func(context *guigui.Context, widgetBounds 
 
 func (t *Text) onScrollDelta(f func(context *guigui.Context, deltaX, deltaY float64)) {
 	guigui.SetEventHandler(t, textEventScrollDelta, f)
+}
+
+// onScrollIntoView registers a handler invoked when the selection needs to be
+// brought into view. start and end are the selection endpoints, matching
+// [Text.Selection] semantics (start <= end as byte indices); both equal when
+// the selection has zero width.
+func (t *Text) onScrollIntoView(f func(context *guigui.Context, start, end cursorScrollTarget)) {
+	guigui.SetEventHandler(t, textEventScrollIntoView, f)
 }
 
 // contentHashForStateKey returns a 128-bit fingerprint of the current field
@@ -2172,13 +2181,13 @@ func (t *Text) textPosition(context *guigui.Context, bounds image.Rectangle, ind
 			renderingLength = renderingLength + compLen - (sEnd - sStart)
 		}
 	}
-	readRendering := func(start, end int) string { return t.stringValueWithRange(start, end) }
+	readRendering := t.stringValueWithRange
 	if showComposition {
-		readRendering = func(start, end int) string { return t.stringValueForRenderingRange(start, end) }
+		readRendering = t.stringValueForRenderingRange
 	}
 	var readCommitted func(start, end int) string
 	if compLen > 0 {
-		readCommitted = func(start, end int) string { return t.stringValueWithRange(start, end) }
+		readCommitted = t.stringValueWithRange
 	}
 	// firstLogicalLineInViewport pins TextPositionFromIndex's Y origin
 	// to the line at widget-local Y=0 (the line that
@@ -2188,7 +2197,7 @@ func (t *Text) textPosition(context *guigui.Context, bounds image.Rectangle, ind
 	// bounded by the logical-line distance between firstLine and the
 	// cursor's line, which is a viewport's worth of lines for cursors
 	// visible on screen.
-	pos0, pos1, count := textutil.TextPositionFromIndex(&textutil.TextPositionFromIndexParams{
+	pos0, pos1, count := textutil.TextPositionFromIndex(&textutil.TextPositionParams{
 		Index:                index,
 		RenderingTextRange:   readRendering,
 		RenderingTextLength:  renderingLength,
@@ -2212,6 +2221,82 @@ func (t *Text) textPosition(context *guigui.Context, bounds image.Rectangle, ind
 		X:      pos.X + float64(textBounds.Min.X),
 		Top:    pos.Top + float64(textBounds.Min.Y),
 		Bottom: pos.Bottom + float64(textBounds.Min.Y),
+	}, true
+}
+
+// cursorScrollTarget describes one cursor edge for scroll-into-view requests.
+type cursorScrollTarget struct {
+	// LogicalLineIndex is the cursor's committed-text logical-line index.
+	LogicalLineIndex int
+
+	// X is the cursor's textBounds-relative X coordinate.
+	X float64
+
+	// Top is the cursor's top Y, measured from the start of the logical line.
+	Top float64
+
+	// Bottom is the cursor's bottom Y, measured from the start of the logical line.
+	Bottom float64
+}
+
+// cursorPositionWithinLine returns the cursor's logical-line index and its
+// line-relative position. Costs one logical-line shape regardless of where
+// the cursor sits in the document.
+func (t *Text) cursorPositionWithinLine(context *guigui.Context, bounds image.Rectangle, index int, showComposition bool) (target cursorScrollTarget, ok bool) {
+	textBounds := t.contentBoundsForLayout(context, bounds)
+	width := textBounds.Dx()
+	op := &textutil.Options{
+		AutoWrap:         t.autoWrap,
+		Face:             t.face(context, false),
+		LineHeight:       t.lineHeight(context),
+		HorizontalAlign:  textutil.HorizontalAlign(t.hAlign),
+		VerticalAlign:    textutil.VerticalAlign(t.vAlign),
+		TabWidth:         t.actualTabWidth(context),
+		KeepTailingSpace: t.keepTailingSpace,
+	}
+	t.ensureLineByteOffsets()
+
+	renderingLength := t.field.TextLengthInBytes()
+	var sStart, sEnd, compLen int
+	if showComposition {
+		compLen = t.field.UncommittedTextLengthInBytes()
+		if compLen > 0 {
+			sStart, sEnd = t.field.Selection()
+			renderingLength = renderingLength + compLen - (sEnd - sStart)
+		}
+	}
+	readRendering := t.stringValueWithRange
+	if showComposition {
+		readRendering = t.stringValueForRenderingRange
+	}
+	var readCommitted func(start, end int) string
+	if compLen > 0 {
+		readCommitted = t.stringValueWithRange
+	}
+	li, pos0, pos1, count := textutil.PositionWithinLogicalLine(&textutil.TextPositionParams{
+		Index:               index,
+		RenderingTextRange:  readRendering,
+		RenderingTextLength: renderingLength,
+		Width:               width,
+		Options:             op,
+		CommittedTextRange:  readCommitted,
+		LineByteOffsets:     &t.lineByteOffsets,
+		SelectionStart:      sStart,
+		SelectionEnd:        sEnd,
+		CompositionLen:      compLen,
+	})
+	if count == 0 {
+		return cursorScrollTarget{}, false
+	}
+	pos := pos0
+	if count == 2 {
+		pos = pos1
+	}
+	return cursorScrollTarget{
+		LogicalLineIndex: li,
+		X:                pos.X + float64(textBounds.Min.X),
+		Top:              pos.Top,
+		Bottom:           pos.Bottom,
 	}, true
 }
 
@@ -2248,56 +2333,52 @@ func (t *Text) adjustScrollOffset(context *guigui.Context, widgetBounds *guigui.
 	textBounds := widgetBounds.Bounds()
 	textVisibleBounds := widgetBounds.VisibleBounds()
 
-	cx, cy := ebiten.CursorPosition()
-	if pos, ok := t.textPosition(context, textBounds, end, true); ok {
-		var deltaX, deltaY float64
-		if t.dragging {
-			deltaX = float64(textVisibleBounds.Max.X) - float64(cx) - float64(t.paddingForScrollOffset.End)
-			deltaY = float64(textVisibleBounds.Max.Y) - float64(cy) - float64(t.paddingForScrollOffset.Bottom)
-			if cx > textVisibleBounds.Max.X {
-				deltaX /= 4
-			} else {
-				deltaX = 0
-			}
-			if cy > textVisibleBounds.Max.Y {
-				deltaY /= 4
-			} else {
-				deltaY = 0
-			}
+	if t.dragging {
+		// Drag autoscroll tracks the mouse, not the text cursor.
+		cx, cy := ebiten.CursorPosition()
+		exEnd := float64(textVisibleBounds.Max.X) - float64(cx) - float64(t.paddingForScrollOffset.End)
+		eyEnd := float64(textVisibleBounds.Max.Y) - float64(cy) - float64(t.paddingForScrollOffset.Bottom)
+		if cx > textVisibleBounds.Max.X {
+			exEnd /= 4
 		} else {
-			deltaX = float64(textVisibleBounds.Max.X) - pos.X - float64(t.paddingForScrollOffset.End)
-			deltaY = float64(textVisibleBounds.Max.Y) - pos.Bottom - float64(t.paddingForScrollOffset.Bottom)
+			exEnd = 0
 		}
-		deltaX = min(deltaX, 0)
-		deltaY = min(deltaY, 0)
-		dx += deltaX
-		dy += deltaY
-	}
-	if pos, ok := t.textPosition(context, textBounds, start, true); ok {
-		var deltaX, deltaY float64
-		if t.dragging {
-			deltaX = float64(textVisibleBounds.Min.X) - float64(cx) + float64(t.paddingForScrollOffset.Start)
-			deltaY = float64(textVisibleBounds.Min.Y) - float64(cy) + float64(t.paddingForScrollOffset.Top)
-			if cx < textVisibleBounds.Min.X {
-				deltaX /= 4
-			} else {
-				deltaX = 0
-			}
-			if cy < textVisibleBounds.Min.Y {
-				deltaY /= 4
-			} else {
-				deltaY = 0
-			}
+		if cy > textVisibleBounds.Max.Y {
+			eyEnd /= 4
 		} else {
-			deltaX = float64(textVisibleBounds.Min.X) - pos.X + float64(t.paddingForScrollOffset.Start)
-			deltaY = float64(textVisibleBounds.Min.Y) - pos.Top + float64(t.paddingForScrollOffset.Top)
+			eyEnd = 0
 		}
-		deltaX = max(deltaX, 0)
-		deltaY = max(deltaY, 0)
-		dx += deltaX
-		dy += deltaY
+		dx += min(exEnd, 0)
+		dy += min(eyEnd, 0)
+		exStart := float64(textVisibleBounds.Min.X) - float64(cx) + float64(t.paddingForScrollOffset.Start)
+		eyStart := float64(textVisibleBounds.Min.Y) - float64(cy) + float64(t.paddingForScrollOffset.Top)
+		if cx < textVisibleBounds.Min.X {
+			exStart /= 4
+		} else {
+			exStart = 0
+		}
+		if cy < textVisibleBounds.Min.Y {
+			eyStart /= 4
+		} else {
+			eyStart = 0
+		}
+		dx += max(exStart, 0)
+		dy += max(eyStart, 0)
+		return dx, dy
 	}
-	return dx, dy
+
+	endTarget, ok := t.cursorPositionWithinLine(context, textBounds, end, true)
+	if !ok {
+		return 0, 0
+	}
+	startTarget := endTarget
+	if start != end {
+		if st, ok := t.cursorPositionWithinLine(context, textBounds, start, true); ok {
+			startTarget = st
+		}
+	}
+	guigui.DispatchEvent(t, textEventScrollIntoView, startTarget, endTarget)
+	return 0, 0
 }
 
 func (t *Text) CanCut() bool {

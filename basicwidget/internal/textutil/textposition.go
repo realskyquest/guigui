@@ -11,11 +11,11 @@ type TextPosition struct {
 	Bottom float64
 }
 
-// TextPositionFromIndexParams describes the inputs for
+// TextPositionParams describes the inputs for
 // [TextPositionFromIndex]. The first group of fields is always
 // required; the second group is optional state that enables the
 // sidecar-accelerated fast path.
-type TextPositionFromIndexParams struct {
+type TextPositionParams struct {
 	// Index is the byte offset in the rendering text to query.
 	Index int
 
@@ -79,7 +79,7 @@ type TextPositionFromIndexParams struct {
 // unrestricted walk: no sidecar, empty document, or composition straddles a
 // logical-line boundary. count==0 with slowPath=false means the index was
 // out of range. m is non-nil iff count > 0.
-func resolveCursorLine(p *TextPositionFromIndexParams) (
+func resolveCursorLine(p *TextPositionParams) (
 	m *lineMeasurer, committedLineIdx, indexInLine int,
 	pos0, pos1 TextPosition, count int, slowPath bool,
 ) {
@@ -198,11 +198,27 @@ func resolveCursorLine(p *TextPositionFromIndexParams) (
 	return m, committedLineIdx, indexInLine, pos0, pos1, count, false
 }
 
+// PositionWithinLogicalLine returns the cursor's committed-text logical-line
+// index and its visual position(s). pos.Top / pos.Bottom are measured from
+// the start of the line at lineIdx, not the document top.
+//
+// count==0 when the result is unavailable: index out of range, no sidecar,
+// empty document, or composition straddling a logical-line boundary. Callers
+// needing the slow whole-document fallback in that case should call
+// [TextPositionFromIndex].
+func PositionWithinLogicalLine(p *TextPositionParams) (lineIdx int, position0, position1 TextPosition, count int) {
+	_, committedLineIdx, _, pos0, pos1, c, slowPath := resolveCursorLine(p)
+	if slowPath || c == 0 {
+		return 0, TextPosition{}, TextPosition{}, 0
+	}
+	return committedLineIdx, pos0, pos1, c
+}
+
 // TextPositionFromIndex returns the visual position(s) for p.Index in the
 // rendering text. The Y origin is the visual line at
 // (p.LogicalLineIndexHint, p.VisualLineIndexHint); count is 1, or 2 at line-
 // break boundaries.
-func TextPositionFromIndex(p *TextPositionFromIndexParams) (position0, position1 TextPosition, count int) {
+func TextPositionFromIndex(p *TextPositionParams) (position0, position1 TextPosition, count int) {
 	m, committedLineIdx, indexInLine, pos0, pos1, c, slowPath := resolveCursorLine(p)
 	if slowPath {
 		return textPositionFromIndex(p.Width, p.RenderingTextRange(0, p.RenderingTextLength), nil, p.Index, p.Options)

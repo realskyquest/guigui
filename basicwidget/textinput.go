@@ -367,7 +367,8 @@ type textInput struct {
 	paddingStart int
 	paddingEnd   int
 
-	onTextScrollDelta func(context *guigui.Context, deltaX, deltaY float64)
+	onTextScrollDelta    func(context *guigui.Context, deltaX, deltaY float64)
+	onTextScrollIntoView func(context *guigui.Context, start, end cursorScrollTarget)
 }
 
 func (t *textInput) OnValueChanged(f func(context *guigui.Context, text string, committed bool)) {
@@ -556,6 +557,13 @@ func (t *textInput) Build(context *guigui.Context, adder *guigui.ChildAdder) err
 		}
 	}
 	t.text.Text().onScrollDelta(t.onTextScrollDelta)
+
+	if t.onTextScrollIntoView == nil {
+		t.onTextScrollIntoView = func(context *guigui.Context, start, end cursorScrollTarget) {
+			t.text.scrollCursorIntoView(context, start, end)
+		}
+	}
+	t.text.Text().onScrollIntoView(t.onTextScrollIntoView)
 
 	context.SetPassthrough(&t.frame, true)
 	context.DelegateFocus(t, t.text.Text())
@@ -914,6 +922,99 @@ func (t *textInputText) measureItemHeight(context *guigui.Context, lineIndex int
 	t.measuredLineHeights[lineIndex] = height
 
 	return height
+}
+
+// scrollCursorIntoView scrolls the panel to bring the selection into view.
+// start and end are the selection endpoints (start <= end as byte indices),
+// equal when the selection has zero width. end has priority — if it isn't
+// fully visible, scroll for it. Otherwise, if start is off-viewport, scroll
+// for start. When the selection is wider than the viewport, end wins.
+//
+// The X axis accumulates contributions from both endpoints, matching the
+// legacy textEventScrollDelta semantics.
+func (t *textInputText) scrollCursorIntoView(context *guigui.Context, start, end cursorScrollTarget) {
+	if t.panel == nil {
+		return
+	}
+	if !t.scrollEdgeIntoView(context, end) && end != start {
+		t.scrollEdgeIntoView(context, start)
+	}
+
+	bounds := t.containerBounds
+	dxEnd := min(float64(bounds.Max.X)-end.X-float64(t.padding.End), 0)
+	dxStart := max(float64(bounds.Min.X)-start.X+float64(t.padding.Start), 0)
+	if dx := dxEnd + dxStart; dx != 0 {
+		t.panel.forceSetScrollOffsetByDelta(dx, 0)
+	}
+}
+
+// scrollEdgeIntoView scrolls the panel so target is visible, returning true
+// when a scroll was applied. Walks at most one viewport's worth of items.
+func (t *textInputText) scrollEdgeIntoView(context *guigui.Context, target cursorScrollTarget) bool {
+	n := t.itemCount()
+	if n == 0 {
+		return false
+	}
+	lineIdx := max(target.LogicalLineIndex, 0)
+	if lineIdx >= n {
+		lineIdx = n - 1
+	}
+
+	bounds := t.containerBounds
+	paddingTop := float64(t.padding.Top)
+	paddingBottom := float64(t.padding.Bottom)
+	viewportTop := paddingTop
+	viewportBottom := float64(bounds.Dy()) - paddingBottom
+
+	topIdx, topOff := t.panel.topItem()
+
+	if lineIdx < topIdx || (lineIdx == topIdx && target.Top < float64(-topOff)) {
+		t.panel.setTopItem(lineIdx, -int(math.Floor(target.Top)))
+		return true
+	}
+
+	// y is the panel-local Y of the current iter's line top.
+	y := paddingTop + float64(topOff)
+	for idx := topIdx; idx < n; idx++ {
+		h := t.measureItemHeight(context, idx)
+		if h < 0 {
+			return false
+		}
+		if idx == lineIdx {
+			if cursorBottomY := y + target.Bottom; cursorBottomY > viewportBottom {
+				diff := int(math.Ceil(cursorBottomY - viewportBottom))
+				t.panel.setTopItem(topIdx, topOff-diff)
+				return true
+			}
+			return false
+		}
+		y += float64(h)
+		if y >= viewportBottom {
+			break
+		}
+	}
+
+	// Below viewport: walk UP from lineIdx, fitting predecessors into the
+	// available content height so target.Bottom lands at the viewport bottom.
+	remaining := (viewportBottom - target.Bottom) - viewportTop
+	newTop := lineIdx
+	newOff := 0
+	for newTop > 0 && remaining > 0 {
+		prevH := t.measureItemHeight(context, newTop-1)
+		if prevH < 0 {
+			break
+		}
+		if remaining >= float64(prevH) {
+			newTop--
+			remaining -= float64(prevH)
+			continue
+		}
+		newOff = -int(math.Ceil(float64(prevH) - remaining))
+		newTop--
+		break
+	}
+	t.panel.setTopItem(newTop, newOff)
+	return true
 }
 
 // measureMaxWidthForViewport runs after [textInputText.Layout]'s
