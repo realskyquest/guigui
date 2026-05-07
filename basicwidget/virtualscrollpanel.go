@@ -288,6 +288,10 @@ func (p *virtualScrollPanel) updateHeightMetrics(context *guigui.Context, panelB
 
 	// Sample heights from a window spanning at least 10 items, and 5 viewports, on each side of the top item.
 	extendCount := max(10, 5*viewportCount)
+	// Narrow the sample window mid-animation; the next idle Layout restores it.
+	if p.vAnimCount > 0 {
+		extendCount = max(2, viewportCount)
+	}
 	start := max(0, p.topItemIndex-extendCount)
 	end := min(totalCount-1, p.topItemIndex+viewportCount+extendCount)
 
