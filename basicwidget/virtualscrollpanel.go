@@ -279,6 +279,12 @@ func (p *virtualScrollPanel) updateHeightMetrics(context *guigui.Context, panelB
 		p.accurateHeightAboveTopInPixels = 0
 		return
 	}
+	// Skip mid-animation: estimatedItemHeight was captured into vAnimDelta at
+	// animation start, and the thumb size can stay frozen for the brief
+	// animation window. The settling Layout (vAnimCount == 0) refreshes both.
+	if p.vAnimCount > 0 {
+		return
+	}
 
 	// Estimate viewport item count from the previous height (or 1 if unknown).
 	viewportCount := 1
@@ -288,10 +294,6 @@ func (p *virtualScrollPanel) updateHeightMetrics(context *guigui.Context, panelB
 
 	// Sample heights from a window spanning at least 10 items, and 5 viewports, on each side of the top item.
 	extendCount := max(10, 5*viewportCount)
-	// Narrow the sample window mid-animation; the next idle Layout restores it.
-	if p.vAnimCount > 0 {
-		extendCount = max(2, viewportCount)
-	}
 	start := max(0, p.topItemIndex-extendCount)
 	end := min(totalCount-1, p.topItemIndex+viewportCount+extendCount)
 
