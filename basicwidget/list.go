@@ -1002,26 +1002,10 @@ func (l *listContent[T]) layoutItems(context *guigui.Context, widgetBounds *guig
 		return
 	}
 
-	topIdx, topOff := l.listPanel.topItem()
-
-	// Clamp topIdx to valid range.
-	if topIdx >= len(availableIndices) {
-		topIdx = max(0, len(availableIndices)-1)
-		topOff = 0
-	}
-	if topIdx < 0 {
-		topIdx = 0
-		topOff = 0
-	}
-
 	baseX := bounds.Min.X + RoundedCornerRadius(context)
 	viewportTop := bounds.Min.Y
 	viewportBottom := bounds.Max.Y
 	viewportHeight := viewportBottom - viewportTop
-
-	// Normalize topIdx/topOff before layout so items are positioned correctly.
-	l.normalizeTopItem(context, availableIndices, cw, bounds)
-	topIdx, topOff = l.listPanel.topItem()
 
 	animRate := l.expandAnimationRate()
 
@@ -1032,41 +1016,19 @@ func (l *listContent[T]) layoutItems(context *guigui.Context, widgetBounds *guig
 	// then clip and remove items outside the animated region. However, the current per-child scaling
 	// is simpler and avoids the clipping complexity.
 
-	// Pre-pass: measure heights from topIdx downward to detect bottom gap.
-	// This is cheap since Measure results are typically cached.
-	{
-		y := RoundedCornerRadius(context) + topOff
-		var reachedEnd bool
-		for ai := topIdx; ai < len(availableIndices); ai++ {
-			if y >= viewportHeight {
-				break
-			}
+	// Resolve the top item: clamp + normalize + bottom-clamp in one pass.
+	// viewportHeight is the full panel height; the content area sits between
+	// two RoundedCornerRadius paddings, so the effective viewport for clamp
+	// purposes is viewportHeight - 2*RCR.
+	rcr := RoundedCornerRadius(context)
+	topIdx, topOff := l.listPanel.layoutTopItem(context, viewportHeight-2*rcr,
+		func(ai int) int {
 			h := l.measureItemHeightWithContentWidth(context, availableIndices[ai], cw)
 			if l.isExpandAnimating() && l.isChildOfExpandAnimatingItem(availableIndices[ai]) {
-				y += int(float64(h) * animRate)
-			} else {
-				y += h
+				return int(float64(h) * animRate)
 			}
-			if ai == len(availableIndices)-1 {
-				reachedEnd = true
-			}
-		}
-		if reachedEnd {
-			bottomY := y + RoundedCornerRadius(context)
-			if gap := viewportHeight - bottomY; gap > 0 {
-				topOff += gap
-				// Pull topIdx backward if needed.
-				for topOff > 0 && topIdx > 0 {
-					topIdx--
-					topOff -= l.measureItemHeightWithContentWidth(context, availableIndices[topIdx], cw)
-				}
-				if topIdx == 0 && topOff > 0 {
-					topOff = 0
-				}
-				l.listPanel.forceSetTopItem(topIdx, topOff, false)
-			}
-		}
-	}
+			return h
+		})
 
 	// Start Y at the top of the viewport plus the topItemOffset.
 	y := viewportTop + RoundedCornerRadius(context) + topOff
@@ -1111,56 +1073,6 @@ func (l *listContent[T]) appendAvailableIndices(indices []int) []int {
 		indices = append(indices, i)
 	}
 	return indices
-}
-
-// normalizeTopItem adjusts topItemIndex and topItemOffset so that
-// topItemOffset stays within [-itemHeight, 0] by advancing or retreating
-// topItemIndex when items cross boundaries.
-func (l *listContent[T]) normalizeTopItem(context *guigui.Context, availableIndices []int, cw int, bounds image.Rectangle) {
-	if len(availableIndices) == 0 {
-		return
-	}
-
-	topIdx, topOff := l.listPanel.topItem()
-
-	// Move topItemIndex forward when topItemOffset scrolled past an item.
-	for topOff < 0 && topIdx < len(availableIndices)-1 {
-		i := availableIndices[topIdx]
-		itemH := l.measureItemHeightWithContentWidth(context, i, cw)
-		if -topOff >= itemH {
-			topOff += itemH
-			topIdx++
-		} else {
-			break
-		}
-	}
-
-	// Move topItemIndex backward when topItemOffset is positive.
-	for topOff > 0 && topIdx > 0 {
-		topIdx--
-		i := availableIndices[topIdx]
-		itemH := l.measureItemHeightWithContentWidth(context, i, cw)
-		topOff -= itemH
-	}
-
-	// Clamp: don't allow gap above first item.
-	if topIdx == 0 && topOff > 0 {
-		topOff = 0
-	}
-
-	// Clamp: don't scroll past the last item.
-	if topIdx >= len(availableIndices) {
-		topIdx = len(availableIndices) - 1
-		topOff = 0
-	}
-
-	// Clamp: don't allow negative index.
-	if topIdx < 0 {
-		topIdx = 0
-		topOff = 0
-	}
-
-	l.listPanel.forceSetTopItem(topIdx, topOff, false)
 }
 
 // measureItemContentHeight returns the content height of an item, caching the
@@ -2057,7 +1969,7 @@ func (l *listContent[T]) scrollToEnsureItemVisible(context *guigui.Context, widg
 				// Need to scroll down. Set the offset so this item's bottom aligns with viewport bottom.
 				diff := itemBottom - (viewportHeight - RoundedCornerRadius(context))
 				l.listPanel.setTopItem(topIdx, topOff-diff)
-				// normalizeTopItem will fix the indices during the next layout.
+				// layoutTopItem will fix the indices during the next layout.
 			}
 			return
 		}

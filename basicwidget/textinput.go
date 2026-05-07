@@ -1065,79 +1065,10 @@ func (t *textInputText) Layout(context *guigui.Context, widgetBounds *guigui.Wid
 	txt := t.text.Widget()
 	lh := int(math.Ceil(txt.lineHeight(context)))
 
-	// Pre-clamp topIdx to [0, n-1] so all the measureItemHeight calls below
-	// see an in-range index, per the [virtualScrollContent.measureItemHeight]
-	// contract. Out-of-range topIdx can occur when the document shrinks
-	// between layouts.
-	topIdx, topOff := t.panel.topItem()
-	n := t.itemCount()
-	if n == 0 {
-		topIdx = 0
-		topOff = 0
-	} else {
-		if topIdx >= n {
-			topIdx = n - 1
-			topOff = 0
-		}
-		if topIdx < 0 {
-			topIdx = 0
-			topOff = 0
-		}
-	}
-
-	// Normalize topItemOffset into [-itemH, 0] by advancing or retreating
-	// topItemIndex over real measured line heights. Mirrors
-	// listContent.normalizeTopItem.
-	for topOff < 0 && topIdx < n-1 {
-		ih := t.measureItemHeight(context, topIdx)
-		if -topOff >= ih {
-			topOff += ih
-			topIdx++
-			continue
-		}
-		break
-	}
-	for topOff > 0 && topIdx > 0 {
-		topIdx--
-		topOff -= t.measureItemHeight(context, topIdx)
-	}
-	if topIdx == 0 && topOff > 0 {
-		topOff = 0
-	}
-
 	viewportInner := bounds.Dy() - t.padding.Top - t.padding.Bottom
-
-	// Bottom clamp: if the last logical line is visible with empty space
-	// below, pull topIdx backward so the document's last line aligns with
-	// the viewport bottom rather than leaving a gap. Mirrors the pre-pass
-	// in listContent.layoutItems.
-	{
-		y := topOff
-		var reachedEnd bool
-		for ai := topIdx; ai < n; ai++ {
-			if y >= viewportInner {
-				break
-			}
-			y += t.measureItemHeight(context, ai)
-			if ai == n-1 {
-				reachedEnd = true
-			}
-		}
-		if reachedEnd {
-			if gap := viewportInner - y; gap > 0 {
-				topOff += gap
-				for topOff > 0 && topIdx > 0 {
-					topIdx--
-					topOff -= t.measureItemHeight(context, topIdx)
-				}
-				if topIdx == 0 && topOff > 0 {
-					topOff = 0
-				}
-			}
-		}
-	}
-
-	t.panel.forceSetTopItem(topIdx, topOff, false)
+	topIdx, topOff := t.panel.layoutTopItem(context, viewportInner,
+		func(ai int) int { return t.measureItemHeight(context, ai) })
+	n := t.itemCount()
 
 	// Position the *Text widget so logical line topIdx lands at the
 	// panel viewport top, shifted by topOff. The inner *Text takes

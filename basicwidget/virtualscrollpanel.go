@@ -267,6 +267,93 @@ func (p *virtualScrollPanel) forceSetTopItem(index, offset int, cancelAnimation 
 	}
 }
 
+// layoutTopItem resolves the panel's (topItemIndex, topItemOffset) to its
+// canonical layout-ready form and commits it via forceSetTopItem. Returns the
+// committed values for caller convenience.
+//
+// In one pass it: clamps topItemIndex into [0, n-1]; absorbs topItemOffset
+// into topItemIndex via forward/backward walks until the offset is within
+// [-itemH, 0]; bottom-clamps so the document's last item, when visible,
+// aligns with the viewport content bottom rather than leaving a gap.
+//
+// measureItem is the per-item height for the bottom-clamp's forward detection walk;
+// callers wrap [virtualScrollContent.measureItemHeight] to apply per-item
+// effects (e.g. list's expand-animation scaling). All other walks use real
+// content.measureItemHeight directly.
+//
+// TODO: revisit whether the normalize walks and the bottom-clamp's backward
+// gap-fill should also go through measureItem. The current asymmetry
+// preserves the pre-consolidation behavior — only the forward detection
+// walk reflects animation-time apparent heights; everything else anchors
+// to real heights for stable scroll state. Applying measureItem uniformly
+// would simplify the contract but subtly changes behavior during list
+// expand-animation.
+//
+// viewportInner is the content area height — panel bounds minus any padding
+// the content reserves (i.e. content.viewportPaddingY).
+func (p *virtualScrollPanel) layoutTopItem(context *guigui.Context, viewportInner int, measureItem func(ai int) int) (idx, offset int) {
+	n := p.content.itemCount()
+	idx = p.topItemIndex
+	offset = p.topItemOffset
+	if n == 0 {
+		idx, offset = 0, 0
+		p.forceSetTopItem(idx, offset, false)
+		return
+	}
+	if idx >= n {
+		idx = n - 1
+		offset = 0
+	}
+	if idx < 0 {
+		idx = 0
+		offset = 0
+	}
+
+	for offset < 0 && idx < n-1 {
+		ih := p.content.measureItemHeight(context, idx)
+		if -offset >= ih {
+			offset += ih
+			idx++
+			continue
+		}
+		break
+	}
+	for offset > 0 && idx > 0 {
+		idx--
+		offset -= p.content.measureItemHeight(context, idx)
+	}
+	if idx == 0 && offset > 0 {
+		offset = 0
+	}
+
+	y := offset
+	var reachedEnd bool
+	for ai := idx; ai < n; ai++ {
+		if y >= viewportInner {
+			break
+		}
+		y += measureItem(ai)
+		if ai == n-1 {
+			reachedEnd = true
+		}
+	}
+	if reachedEnd {
+		if gap := viewportInner - y; gap > 0 {
+			offset += gap
+			for offset > 0 && idx > 0 {
+				idx--
+				offset -= p.content.measureItemHeight(context, idx)
+			}
+			if idx == 0 && offset > 0 {
+				offset = 0
+			}
+		}
+	}
+
+	p.forceSetTopItem(idx, offset, false)
+	return idx, offset
+}
+
 // updateHeightMetrics samples item heights and refreshes the cached
 // scroll-bar metrics: estimatedItemHeight always, and the accurate*
 // fields when the sample window covers every item.
