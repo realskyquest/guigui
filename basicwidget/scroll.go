@@ -99,18 +99,24 @@ func scrollThumbPadding(context *guigui.Context) float64 {
 	return 2 * context.Scale()
 }
 
+func scrollThumbMinSize(context *guigui.Context, trackLength float64) float64 {
+	return min(float64(UnitSize(context)), 0.5*trackLength)
+}
+
 func scrollThumbSize(context *guigui.Context, widgetBounds *guigui.WidgetBounds, contentSize image.Point) (float64, float64) {
 	bounds := widgetBounds.Bounds()
 	padding := scrollThumbPadding(context)
 
 	var w, h float64
 	if contentSize.X > bounds.Dx() {
-		w = (float64(bounds.Dx()) - 2*padding) * float64(bounds.Dx()) / float64(contentSize.X)
-		w = max(w, scrollThumbStrokeWidth(context))
+		trackLength := float64(bounds.Dx()) - 2*padding
+		w = trackLength * float64(bounds.Dx()) / float64(contentSize.X)
+		w = max(w, scrollThumbMinSize(context, trackLength))
 	}
 	if contentSize.Y > bounds.Dy() {
-		h = (float64(bounds.Dy()) - 2*padding) * float64(bounds.Dy()) / float64(contentSize.Y)
-		h = max(h, scrollThumbStrokeWidth(context))
+		trackLength := float64(bounds.Dy()) - 2*padding
+		h = trackLength * float64(bounds.Dy()) / float64(contentSize.Y)
+		h = max(h, scrollThumbMinSize(context, trackLength))
 	}
 	return w, h
 }

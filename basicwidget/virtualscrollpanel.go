@@ -696,12 +696,13 @@ func (p *virtualScrollPanel) vThumbHeight(context *guigui.Context, panelBounds i
 		return 0
 	}
 	padding := scrollThumbPadding(context)
+	trackLength := float64(panelBounds.Dy()) - 2*padding
 	if p.allHeightsMeasured {
 		if p.accurateTotalHeightInPixels <= panelBounds.Dy() {
 			return 0
 		}
-		barHeight := (float64(panelBounds.Dy()) - 2*padding) * float64(panelBounds.Dy()) / float64(p.accurateTotalHeightInPixels)
-		return max(barHeight, scrollThumbStrokeWidth(context))
+		barHeight := trackLength * float64(panelBounds.Dy()) / float64(p.accurateTotalHeightInPixels)
+		return max(barHeight, scrollThumbMinSize(context, trackLength))
 	}
 	if p.estimatedItemHeight <= 0 {
 		return 0
@@ -710,8 +711,8 @@ func (p *virtualScrollPanel) vThumbHeight(context *guigui.Context, panelBounds i
 	if viewportItems >= float64(totalCount) {
 		return 0
 	}
-	barHeight := (float64(panelBounds.Dy()) - 2*padding) * viewportItems / float64(totalCount)
-	return max(barHeight, scrollThumbStrokeWidth(context))
+	barHeight := trackLength * viewportItems / float64(totalCount)
+	return max(barHeight, scrollThumbMinSize(context, trackLength))
 }
 
 // bottomFracIdx returns the fracIdx reached when the last item's bottom
@@ -765,8 +766,9 @@ func (p *virtualScrollPanel) thumbBounds(context *guigui.Context, widgetBounds *
 
 	// Horizontal thumb.
 	if cw := p.content.contentWidth(context); cw > bounds.Dx() {
-		barWidth := (float64(bounds.Dx()) - 2*padding) * float64(bounds.Dx()) / float64(cw)
-		barWidth = max(barWidth, scrollThumbStrokeWidth(context))
+		trackLength := float64(bounds.Dx()) - 2*padding
+		barWidth := trackLength * float64(bounds.Dx()) / float64(cw)
+		barWidth = max(barWidth, scrollThumbMinSize(context, trackLength))
 
 		rate := -p.offsetX / float64(cw-bounds.Dx())
 		x0 := float64(bounds.Min.X) + padding + rate*(float64(bounds.Dx())-2*padding-barWidth)
