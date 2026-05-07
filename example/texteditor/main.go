@@ -48,11 +48,8 @@ type Root struct {
 
 	layoutItems []guigui.LinearLayoutItem
 
-	// scratchBuf is a reusable buffer for streaming bytes out of the editor
-	// (the whole value during find, the cursor's line prefix during the
-	// status-bar position update). Reusing one buffer across calls keeps the
-	// per-call allocation cost flat after the buffer has grown to its
-	// working set.
+	// scratchBuf is reused across ticks for streaming the cursor's line
+	// prefix to the status-bar position display.
 	scratchBuf bytes.Buffer
 }
 
@@ -434,36 +431,33 @@ func (r *Root) handleHotkeys(context *guigui.Context, widgetBounds *guigui.Widge
 	return guigui.HandleInputByWidget(&r.editor)
 }
 
-// readEditorBytes streams the editor's current value into r.scratchBuf and
-// returns the buffer's underlying slice. The slice is only valid until the
-// next call that touches r.scratchBuf.
-//
-// TODO: Remove this. Find should be able to scan the editor's text without
-// materializing it into a byte slice.
-func (r *Root) readEditorBytes() []byte {
-	r.scratchBuf.Reset()
-	if _, err := r.editor.WriteValueTo(&r.scratchBuf); err != nil {
-		slog.Error("read editor", "err", err)
-	}
-	return r.scratchBuf.Bytes()
-}
-
 func (r *Root) findNext(query string) {
 	defer r.updateFindCount()
 	if query == "" {
 		return
 	}
-	text := r.readEditorBytes()
-	q := []byte(query)
 	_, end := r.editor.Selection()
-	if i := bytes.Index(text[end:], q); i >= 0 {
-		start := end + i
-		r.editor.SetSelection(start, start+len(query))
+	first := -1
+	next := -1
+	s := newSubstringSearcher([]byte(query), func(pos int) bool {
+		if first < 0 {
+			first = pos
+		}
+		if pos >= end {
+			next = pos
+			return false
+		}
+		return true
+	})
+	_, _ = r.editor.WriteValueTo(s)
+	target := next
+	if target < 0 {
+		target = first
+	}
+	if target < 0 {
 		return
 	}
-	if i := bytes.Index(text, q); i >= 0 {
-		r.editor.SetSelection(i, i+len(query))
-	}
+	r.editor.SetSelection(target, target+len(query))
 }
 
 func (r *Root) findPrev(query string) {
@@ -471,16 +465,28 @@ func (r *Root) findPrev(query string) {
 	if query == "" {
 		return
 	}
-	text := r.readEditorBytes()
-	q := []byte(query)
 	start, _ := r.editor.Selection()
-	if i := bytes.LastIndex(text[:start], q); i >= 0 {
-		r.editor.SetSelection(i, i+len(query))
+	last := -1
+	prev := -1
+	s := newSubstringSearcher([]byte(query), func(pos int) bool {
+		last = pos
+		if pos < start {
+			prev = pos
+			return true
+		}
+		// pos >= start: prev can no longer grow. If it is already set,
+		// the answer is locked in; otherwise keep scanning to find last.
+		return prev < 0
+	})
+	_, _ = r.editor.WriteValueTo(s)
+	target := prev
+	if target < 0 {
+		target = last
+	}
+	if target < 0 {
 		return
 	}
-	if i := bytes.LastIndex(text, q); i >= 0 {
-		r.editor.SetSelection(i, i+len(query))
-	}
+	r.editor.SetSelection(target, target+len(query))
 }
 
 // updateFindCount recomputes the "n of total" display from the dialog's
@@ -491,38 +497,87 @@ func (r *Root) updateFindCount() {
 		r.findDialog.SetCount(0, 0)
 		return
 	}
-	text := r.readEditorBytes()
-	matches := findAllNonOverlapping(text, []byte(query))
-	if len(matches) == 0 {
-		r.findDialog.SetCount(0, 0)
-		return
-	}
 	selStart, _ := r.editor.Selection()
-	cur := 0
-	for i, m := range matches {
-		if m == selStart {
-			cur = i + 1
-			break
+	var total int
+	var cur int
+	s := newSubstringSearcher([]byte(query), func(pos int) bool {
+		total++
+		if pos == selStart {
+			cur = total
 		}
-	}
-	r.findDialog.SetCount(cur, len(matches))
+		return true
+	})
+	_, _ = r.editor.WriteValueTo(s)
+	r.findDialog.SetCount(cur, total)
 }
 
-func findAllNonOverlapping(text, query []byte) []int {
-	if len(query) == 0 {
-		return nil
-	}
-	var out []int
-	var i int
-	for {
-		idx := bytes.Index(text[i:], query)
-		if idx < 0 {
-			break
+// substringSearcher is an [io.Writer] that reports the byte offset of every
+// non-overlapping occurrence of query in the bytes written to it via
+// onMatch. onMatch returns false to stop scanning; subsequent writes still
+// consume bytes but do not produce more matches.
+//
+// The matcher is a Knuth–Morris–Pratt state machine.
+type substringSearcher struct {
+	// query is the substring being searched for.
+	query []byte
+	// failure is the KMP failure function over query: failure[i] is the
+	// length of the longest proper prefix of query[:i+1] that is also a
+	// suffix of query[:i+1].
+	failure []int
+	// state is the length of the query prefix currently matched.
+	state int
+	// abs is the number of bytes consumed by Write so far.
+	abs int
+	// onMatch is invoked at each non-overlapping occurrence of query;
+	// returning false stops further matching.
+	onMatch func(absPos int) bool
+	// stopped is true once onMatch has returned false.
+	stopped bool
+}
+
+func newSubstringSearcher(query []byte, onMatch func(absPos int) bool) *substringSearcher {
+	f := make([]int, len(query))
+	for i := 1; i < len(query); i++ {
+		j := f[i-1]
+		for j > 0 && query[i] != query[j] {
+			j = f[j-1]
 		}
-		out = append(out, i+idx)
-		i = i + idx + len(query)
+		if query[i] == query[j] {
+			j++
+		}
+		f[i] = j
 	}
-	return out
+	return &substringSearcher{
+		query:   query,
+		failure: f,
+		onMatch: onMatch,
+	}
+}
+
+func (s *substringSearcher) Write(p []byte) (int, error) {
+	if s.stopped {
+		s.abs += len(p)
+		return len(p), nil
+	}
+	for i, b := range p {
+		for s.state > 0 && b != s.query[s.state] {
+			s.state = s.failure[s.state-1]
+		}
+		if b == s.query[s.state] {
+			s.state++
+		}
+		if s.state == len(s.query) {
+			matchAbs := s.abs + i + 1 - len(s.query)
+			if !s.onMatch(matchAbs) {
+				s.stopped = true
+				s.abs += len(p)
+				return len(p), nil
+			}
+			s.state = 0
+		}
+	}
+	s.abs += len(p)
+	return len(p), nil
 }
 
 func cmdPressed() bool {
