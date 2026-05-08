@@ -65,12 +65,32 @@ func (t *Table[T]) SetColumns(columns []TableColumn) {
 	t.columns = append(t.columns, columns...)
 }
 
+func (t *Table[T]) SetMultiSelection(multi bool) {
+	t.list.SetMultiSelection(multi)
+}
+
+func (t *Table[T]) SetUnfocusedSelectionVisible(visible bool) {
+	t.list.SetUnfocusedSelectionVisible(visible)
+}
+
+func (t *Table[T]) SetItemHeight(height int) {
+	t.list.SetItemHeight(height)
+}
+
 func (t *Table[T]) OnItemSelected(f func(context *guigui.Context, index int)) {
 	t.list.OnItemSelected(f)
 }
 
+func (t *Table[T]) OnItemsSelected(f func(context *guigui.Context, indices []int)) {
+	t.list.OnItemsSelected(f)
+}
+
 func (t *Table[T]) OnItemsMoved(f func(context *guigui.Context, from, count, to int)) {
 	t.list.OnItemsMoved(f)
+}
+
+func (t *Table[T]) OnItemsCanMove(f func(context *guigui.Context, from, count, to int) bool) {
+	t.list.OnItemsCanMove(f)
 }
 
 // SetReservesCheckmarkSpace sets whether the table reserves space for the
@@ -107,6 +127,10 @@ func (t *Table[T]) CellBounds(rowIndex, colIndex int) image.Rectangle {
 		Min: image.Pt(x, itemBounds.Min.Y),
 		Max: image.Pt(x+t.columnWidthsInPixels[colIndex], itemBounds.Max.Y),
 	}
+}
+
+func (t *Table[T]) IsItemInViewport(index int) bool {
+	return t.list.IsItemInViewport(index)
 }
 
 // IsItemAvailable reports whether the item at the given index is available in the list
@@ -193,8 +217,16 @@ func tableHeaderHeight(context *guigui.Context) int {
 	return u
 }
 
+func (t *Table[T]) SelectedItemCount() int {
+	return t.list.SelectedItemCount()
+}
+
 func (t *Table[T]) SelectedItemIndex() int {
 	return t.list.SelectedItemIndex()
+}
+
+func (t *Table[T]) AppendSelectedItemIndices(indices []int) []int {
+	return t.list.AppendSelectedItemIndices(indices)
 }
 
 func (t *Table[T]) SelectedItem() (TableRow[T], bool) {
@@ -209,6 +241,15 @@ func (t *Table[T]) ItemByIndex(index int) (TableRow[T], bool) {
 		return TableRow[T]{}, false
 	}
 	return t.tableRowWidgets.At(index).row, true
+}
+
+func (t *Table[T]) IndexByValue(value T) int {
+	for i := range t.tableRowWidgets.Len() {
+		if t.tableRowWidgets.At(i).row.Value == value {
+			return i
+		}
+	}
+	return -1
 }
 
 func (t *Table[T]) SetItems(items []TableRow[T]) {
@@ -229,8 +270,20 @@ func (t *Table[T]) SelectItemByIndex(index int) {
 	t.list.SelectItemByIndex(index)
 }
 
+func (t *Table[T]) SelectItemsByIndices(indices []int) {
+	t.list.SelectItemsByIndices(indices)
+}
+
+func (t *Table[T]) SelectAllItems() {
+	t.list.SelectAllItems()
+}
+
 func (t *Table[T]) SelectItemByValue(value T) {
 	t.list.SelectItemByValue(value)
+}
+
+func (t *Table[T]) SelectItemsByValues(values []T) {
+	t.list.SelectItemsByValues(values)
 }
 
 func (t *Table[T]) JumpToItemByIndex(index int) {
