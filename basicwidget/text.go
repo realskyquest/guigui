@@ -105,7 +105,7 @@ type Text struct {
 	editable                    bool
 	multiline                   bool
 	autoWrap                    bool
-	cursorStatic                bool
+	caretStatic                 bool
 	keepTailingSpace            bool
 	selectionVisibleWhenUnfocus bool
 	ellipsisString              string
@@ -122,7 +122,7 @@ type Text struct {
 	lastClickTick      int64
 	lastClickTextIndex int
 
-	cursor textCursor
+	caret textCaret
 
 	tmpClipboard string
 
@@ -189,7 +189,7 @@ type Text struct {
 	// the panel's topItemIndex so the inner Y math is taken relative
 	// to the visible region, avoiding an O(topIdx) cumulative-Y walk
 	// on every Layout. Set via [Text.setFirstLogicalLineInViewport];
-	// consumers (Draw, hit-testing, cursor positioning) will read it
+	// consumers (Draw, hit-testing, caret positioning) will read it
 	// incrementally as the anchored coordinate system rolls in across
 	// phases.
 	firstLogicalLineInViewport int
@@ -228,7 +228,7 @@ func newTextSizeCacheKey(autoWrap, bold bool) textSizeCacheKey {
 // An uncommitted change occurs on every keystroke or text modification during editing.
 //
 // The handler fires only when the text content actually advances. Input
-// activity that doesn't modify the text — cursor moves, focus changes, IME
+// activity that doesn't modify the text — caret moves, focus changes, IME
 // state replays, redundant commit gestures — does not trigger the handler.
 //
 // If the handler does not need the text payload, prefer
@@ -295,7 +295,7 @@ func (t *Text) onScrollDelta(f func(context *guigui.Context, deltaX, deltaY floa
 // brought into view. start and end are the selection endpoints, matching
 // [Text.Selection] semantics (start <= end as byte indices); both equal when
 // the selection has zero width.
-func (t *Text) onScrollIntoView(f func(context *guigui.Context, start, end cursorScrollTarget)) {
+func (t *Text) onScrollIntoView(f func(context *guigui.Context, start, end caretScrollTarget)) {
 	guigui.SetEventHandler(t, textEventScrollIntoView, f)
 }
 
@@ -349,7 +349,7 @@ func (t *Text) WriteStateKey(w *guigui.StateKeyWriter) {
 	w.WriteBool(t.editable)
 	w.WriteBool(t.multiline)
 	w.WriteBool(t.autoWrap)
-	w.WriteBool(t.cursorStatic)
+	w.WriteBool(t.caretStatic)
 	w.WriteBool(t.keepTailingSpace)
 	w.WriteBool(t.selectionVisibleWhenUnfocus)
 	w.WriteString(t.ellipsisString)
@@ -370,13 +370,13 @@ func (t *Text) resetCachedTextSize() {
 	t.cachedDefaultTabWidth = 0
 }
 
-func (t *Text) canHaveCursor() bool {
+func (t *Text) canHaveCaret() bool {
 	return t.selectable || t.editable
 }
 
 func (t *Text) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
-	if t.canHaveCursor() {
-		adder.AddWidget(&t.cursor)
+	if t.canHaveCaret() {
+		adder.AddWidget(&t.caret)
 	}
 
 	if key := t.faceCacheKey(context, false); t.lastFaceCacheKey != key {
@@ -388,10 +388,10 @@ func (t *Text) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 		t.resetCachedTextSize()
 	}
 
-	context.SetPassthrough(&t.cursor, true)
+	context.SetPassthrough(&t.caret, true)
 
 	if t.selectable || t.editable {
-		t.cursor.text = t
+		t.caret.text = t
 	}
 
 	if t.onFocusChanged == nil {
@@ -401,7 +401,7 @@ func (t *Text) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 			}
 			if focused {
 				t.field.Focus()
-				t.cursor.resetCounter()
+				t.caret.resetCounter()
 				start, end := t.field.Selection()
 				if start < 0 || end < 0 {
 					t.doSelectAll()
@@ -417,10 +417,10 @@ func (t *Text) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 }
 
 func (t *Text) Layout(context *guigui.Context, widgetBounds *guigui.WidgetBounds, layouter *guigui.ChildLayouter) {
-	if t.canHaveCursor() {
+	if t.canHaveCaret() {
 		b := widgetBounds.Bounds()
-		t.cursor.setTextWidgetBounds(b)
-		layouter.LayoutWidget(&t.cursor, t.cursorBounds(context, b))
+		t.caret.setTextWidgetBounds(b)
+		layouter.LayoutWidget(&t.caret, t.caretBounds(context, b))
 	}
 }
 
@@ -486,7 +486,7 @@ func (t *Text) stringValueForRenderingRange(start, end int) string {
 // stringValueForLineContaining returns the bytes of the logical line that
 // contains byteOffset (clamped to the document) along with the line's
 // starting byte offset, suitable for translating local↔global byte
-// positions. It is used by per-cursor textutil calls (word-boundary
+// positions. It is used by per-caret textutil calls (word-boundary
 // lookup, grapheme stepping) so they can scan the relevant logical line
 // without materializing the whole document.
 func (t *Text) stringValueForLineContaining(byteOffset int) (line string, lineStart int) {
@@ -905,10 +905,10 @@ func (t *Text) SetAutoWrap(autoWrap bool) {
 	t.autoWrap = autoWrap
 }
 
-// SetCursorBlinking sets whether the cursor blinks.
+// SetCaretBlinking sets whether the caret blinks.
 // The default value is true.
-func (t *Text) SetCursorBlinking(cursorBlinking bool) {
-	t.cursorStatic = !cursorBlinking
+func (t *Text) SetCaretBlinking(caretBlinking bool) {
+	t.caretStatic = !caretBlinking
 }
 
 // SetSelectionVisibleWhenUnfocused sets whether the selection range stays
@@ -938,7 +938,7 @@ func (t *Text) setKeepTailingSpace(keep bool) {
 // historical behavior; virtualizing parents set this to the topmost
 // visible logical line so the widget can position itself without a
 // per-line cumulative-Y walk. Subsequent phases plug this value into
-// [Text.restrictedTextToDraw], hit testing, and cursor positioning;
+// [Text.restrictedTextToDraw], hit testing, and caret positioning;
 // for now writing it has no observable effect.
 func (t *Text) setFirstLogicalLineInViewport(idx int) {
 	t.firstLogicalLineInViewport = max(idx, 0)
@@ -1308,7 +1308,7 @@ func (t *Text) selectionToDraw(context *guigui.Context) (start, end int, ok bool
 		return s, e, true
 	}
 	// When cs == ce, the composition already started but any conversion is not done yet.
-	// In this case, put the cursor at the end of the composition.
+	// In this case, put the caret at the end of the composition.
 	// TODO: This behavior might be macOS specific. Investigate this.
 	if cs == ce {
 		return s + ce, s + ce, true
@@ -1582,7 +1582,7 @@ func (t *Text) handleButtonInput(context *guigui.Context, widgetBounds *guigui.W
 		t.Copy()
 		return guigui.HandleInputByWidget(t)
 	case isDarwin() && ebiten.IsKeyPressed(ebiten.KeyControl) && isKeyRepeating(ebiten.KeyK):
-		// 'Kill' the text after the cursor or the selection.
+		// 'Kill' the text after the caret or the selection.
 		start, end := t.field.Selection()
 		if start == end {
 			i, l := textutil.FirstLineBreakPositionAndLen(t.stringValueWithRange(start, -1))
@@ -1632,7 +1632,7 @@ func (t *Text) Tick(context *guigui.Context, widgetBounds *guigui.WidgetBounds) 
 
 	// Adjust the scroll offset for cases not covered by HandleButtonInput,
 	// such as continuous scrolling during drag selection.
-	// TODO: The cursor position might be unstable when the text horizontal align is center or right. Fix this.
+	// TODO: The caret position might be unstable when the text horizontal align is center or right. Fix this.
 	if t.selectable || t.editable {
 		if dx, dy := t.adjustScrollOffset(context, widgetBounds); dx != 0 || dy != 0 {
 			guigui.DispatchEvent(t, textEventScrollDelta, dx, dy)
@@ -1693,7 +1693,7 @@ func (t *Text) Draw(context *guigui.Context, widgetBounds *guigui.WidgetBounds, 
 		op.CompositionActiveEnd = cEnd
 		op.InactiveCompositionColor = basicwidgetdraw.TextInactiveCompositionColor(context.ColorMode())
 		op.ActiveCompositionColor = basicwidgetdraw.TextActiveCompositionColor(context.ColorMode())
-		op.CompositionBorderWidth = float32(textCursorWidth(context))
+		op.CompositionBorderWidth = float32(textCaretWidth(context))
 	} else {
 		op.DrawComposition = false
 	}
@@ -1984,7 +1984,7 @@ func (t *Text) textSize(context *guigui.Context, constraints guigui.Constraints,
 		txt := t.textToDraw(context, true)
 		w, h = textutil.Measure(constraintWidth, txt, t.autoWrap, t.face(context, bold), t.lineHeight(context), t.actualTabWidth(context), t.keepTailingSpace, ellipsisString)
 	}
-	// If width is 0, the text's bounds and visible bounds are empty, and nothing including its cursor is rendered.
+	// If width is 0, the text's bounds and visible bounds are empty, and nothing including its caret is rendered.
 	// Force to set a positive number as the width.
 	w = max(w, 1)
 
@@ -2015,7 +2015,7 @@ func (t *Text) CursorShape(context *guigui.Context, widgetBounds *guigui.WidgetB
 	return 0, false
 }
 
-func (t *Text) cursorPosition(context *guigui.Context, textBounds image.Rectangle) (position textutil.TextPosition, ok bool) {
+func (t *Text) caretPosition(context *guigui.Context, textBounds image.Rectangle) (position textutil.TextPosition, ok bool) {
 	if !context.IsFocused(t) {
 		return textutil.TextPosition{}, false
 	}
@@ -2030,14 +2030,14 @@ func (t *Text) cursorPosition(context *guigui.Context, textBounds image.Rectangl
 		return textutil.TextPosition{}, false
 	}
 	// A non-empty selection draws as a highlight, not a caret;
-	// [textCursor.alpha] returns 0 in that case, so no callers need
+	// [textCaret.alpha] returns 0 in that case, so no callers need
 	// the position.
 	if start != end {
 		return textutil.TextPosition{}, false
 	}
 
-	// Skip the textPosition walk when the cursor's line is off-screen;
-	// it can dominate CPU when the user has scrolled far from the cursor.
+	// Skip the textPosition walk when the caret's line is off-screen;
+	// it can dominate CPU when the user has scrolled far from the caret.
 	if !t.isLogicalLineMaybeVisible(context, textBounds, end) {
 		return textutil.TextPosition{}, false
 	}
@@ -2166,9 +2166,9 @@ func (t *Text) textPosition(context *guigui.Context, bounds image.Rectangle, ind
 	// Pass the cached lineByteOffsets sidecar and the
 	// firstLogicalLineInViewport hint so
 	// [textutil.TextPositionFromIndex] walks only the logical lines
-	// between the viewport's first line and the cursor's line. The
+	// between the viewport's first line and the caret's line. The
 	// sidecar-less fallback walks every visual line in the document;
-	// for multi-megabyte buffers cursorPosition / adjustScrollOffset
+	// for multi-megabyte buffers caretPosition / adjustScrollOffset
 	// call this every tick and that fallback dominates CPU.
 	t.ensureLineByteOffsets()
 
@@ -2195,7 +2195,7 @@ func (t *Text) textPosition(context *guigui.Context, bounds image.Rectangle, ind
 	// returned pos.Top is therefore relative to that line, ready to
 	// add to textBounds.Min.Y for screen coordinates. The walk is
 	// bounded by the logical-line distance between firstLine and the
-	// cursor's line, which is a viewport's worth of lines for cursors
+	// caret's line, which is a viewport's worth of lines for carets
 	// visible on screen.
 	pos0, pos1, count := textutil.TextPositionFromIndex(&textutil.TextPositionParams{
 		Index:                index,
@@ -2224,25 +2224,25 @@ func (t *Text) textPosition(context *guigui.Context, bounds image.Rectangle, ind
 	}, true
 }
 
-// cursorScrollTarget describes one cursor edge for scroll-into-view requests.
-type cursorScrollTarget struct {
-	// LogicalLineIndex is the cursor's committed-text logical-line index.
+// caretScrollTarget describes one caret edge for scroll-into-view requests.
+type caretScrollTarget struct {
+	// LogicalLineIndex is the caret's committed-text logical-line index.
 	LogicalLineIndex int
 
-	// X is the cursor's textBounds-relative X coordinate.
+	// X is the caret's textBounds-relative X coordinate.
 	X float64
 
-	// Top is the cursor's top Y, measured from the start of the logical line.
+	// Top is the caret's top Y, measured from the start of the logical line.
 	Top float64
 
-	// Bottom is the cursor's bottom Y, measured from the start of the logical line.
+	// Bottom is the caret's bottom Y, measured from the start of the logical line.
 	Bottom float64
 }
 
-// cursorPositionWithinLine returns the cursor's logical-line index and its
+// caretPositionWithinLine returns the caret's logical-line index and its
 // line-relative position. Costs one logical-line shape regardless of where
-// the cursor sits in the document.
-func (t *Text) cursorPositionWithinLine(context *guigui.Context, bounds image.Rectangle, index int, showComposition bool) (target cursorScrollTarget, ok bool) {
+// the caret sits in the document.
+func (t *Text) caretPositionWithinLine(context *guigui.Context, bounds image.Rectangle, index int, showComposition bool) (target caretScrollTarget, ok bool) {
 	textBounds := t.contentBoundsForLayout(context, bounds)
 	width := textBounds.Dx()
 	op := &textutil.Options{
@@ -2286,13 +2286,13 @@ func (t *Text) cursorPositionWithinLine(context *guigui.Context, bounds image.Re
 		CompositionLen:      compLen,
 	})
 	if count == 0 {
-		return cursorScrollTarget{}, false
+		return caretScrollTarget{}, false
 	}
 	pos := pos0
 	if count == 2 {
 		pos = pos1
 	}
-	return cursorScrollTarget{
+	return caretScrollTarget{
 		LogicalLineIndex: li,
 		X:                pos.X + float64(textBounds.Min.X),
 		Top:              pos.Top,
@@ -2300,16 +2300,16 @@ func (t *Text) cursorPositionWithinLine(context *guigui.Context, bounds image.Re
 	}, true
 }
 
-func textCursorWidth(context *guigui.Context) int {
+func textCaretWidth(context *guigui.Context) int {
 	return int(math.Ceil(2 * context.Scale()))
 }
 
-func (t *Text) cursorBounds(context *guigui.Context, textBounds image.Rectangle) image.Rectangle {
-	pos, ok := t.cursorPosition(context, textBounds)
+func (t *Text) caretBounds(context *guigui.Context, textBounds image.Rectangle) image.Rectangle {
+	pos, ok := t.caretPosition(context, textBounds)
 	if !ok {
 		return image.Rectangle{}
 	}
-	w := textCursorWidth(context)
+	w := textCaretWidth(context)
 	paddingTop := 2 * t.scale() * context.Scale()
 	paddingBottom := 1 * t.scale() * context.Scale()
 	return image.Rect(int(pos.X)-w/2, int(pos.Top+paddingTop), int(pos.X)+w/2, int(pos.Bottom-paddingBottom))
@@ -2334,7 +2334,7 @@ func (t *Text) adjustScrollOffset(context *guigui.Context, widgetBounds *guigui.
 	textVisibleBounds := widgetBounds.VisibleBounds()
 
 	if t.dragging {
-		// Drag autoscroll tracks the mouse, not the text cursor.
+		// Drag autoscroll tracks the mouse, not the caret.
 		cx, cy := ebiten.CursorPosition()
 		exEnd := float64(textVisibleBounds.Max.X) - float64(cx) - float64(t.paddingForScrollOffset.End)
 		eyEnd := float64(textVisibleBounds.Max.Y) - float64(cy) - float64(t.paddingForScrollOffset.Bottom)
@@ -2367,13 +2367,13 @@ func (t *Text) adjustScrollOffset(context *guigui.Context, widgetBounds *guigui.
 		return dx, dy
 	}
 
-	endTarget, ok := t.cursorPositionWithinLine(context, textBounds, end, true)
+	endTarget, ok := t.caretPositionWithinLine(context, textBounds, end, true)
 	if !ok {
 		return 0, 0
 	}
 	startTarget := endTarget
 	if start != end {
-		if st, ok := t.cursorPositionWithinLine(context, textBounds, start, true); ok {
+		if st, ok := t.caretPositionWithinLine(context, textBounds, start, true); ok {
 			startTarget = st
 		}
 	}
@@ -2473,14 +2473,14 @@ func (t *Text) Redo() bool {
 	return true
 }
 
-type textCursor struct {
+type textCaret struct {
 	guigui.DefaultWidget
 
 	text *Text
 
 	// textWidgetBoundsRect is the parent Text's bounds rectangle, captured by
-	// [Text.Layout]. cursorPosition is resolved against this rectangle, not the
-	// cursor's own caret-sized widgetBounds.
+	// [Text.Layout]. caretPosition is resolved against this rectangle, not the
+	// textCaret's own widgetBounds.
 	//
 	// The value is invalid and unavailable during the Build phase, as it is only
 	// populated once [Text.Layout] runs.
@@ -2492,16 +2492,16 @@ type textCursor struct {
 	prevOK    bool
 }
 
-func (t *textCursor) setTextWidgetBounds(rect image.Rectangle) {
+func (t *textCaret) setTextWidgetBounds(rect image.Rectangle) {
 	t.textWidgetBoundsRect = rect
 }
 
-func (t *textCursor) resetCounter() {
+func (t *textCaret) resetCounter() {
 	t.counter = 0
 }
 
-func (t *textCursor) Tick(context *guigui.Context, widgetBounds *guigui.WidgetBounds) error {
-	pos, ok := t.text.cursorPosition(context, t.textWidgetBoundsRect)
+func (t *textCaret) Tick(context *guigui.Context, widgetBounds *guigui.WidgetBounds) error {
+	pos, ok := t.text.caretPosition(context, t.textWidgetBoundsRect)
 	if t.prevPos != pos {
 		t.resetCounter()
 	}
@@ -2516,8 +2516,8 @@ func (t *textCursor) Tick(context *guigui.Context, widgetBounds *guigui.WidgetBo
 	return nil
 }
 
-func (t *textCursor) alpha(context *guigui.Context) float64 {
-	if _, ok := t.text.cursorPosition(context, t.textWidgetBoundsRect); !ok {
+func (t *textCaret) alpha(context *guigui.Context) float64 {
+	if _, ok := t.text.caretPosition(context, t.textWidgetBoundsRect); !ok {
 		return 0
 	}
 	s, e, ok := t.text.selectionToDraw(context)
@@ -2527,7 +2527,7 @@ func (t *textCursor) alpha(context *guigui.Context) float64 {
 	if s != e {
 		return 0
 	}
-	if t.text.cursorStatic {
+	if t.text.caretStatic {
 		return 1
 	}
 	offset := ebiten.TPS() / 2
@@ -2548,7 +2548,7 @@ func (t *textCursor) alpha(context *guigui.Context) float64 {
 	return 1
 }
 
-func (t *textCursor) Draw(context *guigui.Context, widgetBounds *guigui.WidgetBounds, dst *ebiten.Image) {
+func (t *textCaret) Draw(context *guigui.Context, widgetBounds *guigui.WidgetBounds, dst *ebiten.Image) {
 	alpha := t.alpha(context)
 	if alpha == 0 {
 		return
@@ -2557,7 +2557,7 @@ func (t *textCursor) Draw(context *guigui.Context, widgetBounds *guigui.WidgetBo
 	if b.Empty() {
 		return
 	}
-	w := textCursorWidth(context)
+	w := textCaretWidth(context)
 	region := t.textWidgetBoundsRect
 	region.Min.X -= w
 	region.Max.X += w

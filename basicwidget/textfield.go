@@ -135,7 +135,7 @@ func (f *textField) onIMECommit(c *textinput.Commit) {
 	insText := newContent[prefixLen : len(newContent)-suffixLen]
 
 	f.pieceTable.UpdateByIME(insText, insStart, insEnd)
-	// Cursor lands at the end of the IME's committed text within the new
+	// Caret lands at the end of the IME's committed text within the new
 	// joined content laid out at [imeTextStart, imeTextEnd).
 	f.selectionStartInBytes = f.imeTextStart + len(newBefore) + len(text)
 	f.selectionEndInBytes = f.selectionStartInBytes

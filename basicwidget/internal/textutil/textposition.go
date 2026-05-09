@@ -74,12 +74,12 @@ type TextPositionParams struct {
 	VisualLineIndexHint  int
 }
 
-// resolveCursorLine maps p.Index to its committed logical-line index and
+// resolveCaretLine maps p.Index to its committed logical-line index and
 // shapes that one line. slowPath=true tells the caller to fall back to the
 // unrestricted walk: no sidecar, empty document, or composition straddles a
 // logical-line boundary. count==0 with slowPath=false means the index was
 // out of range. m is non-nil iff count > 0.
-func resolveCursorLine(p *TextPositionParams) (
+func resolveCaretLine(p *TextPositionParams) (
 	m *lineMeasurer, committedLineIdx, indexInLine int,
 	pos0, pos1 TextPosition, count int, slowPath bool,
 ) {
@@ -198,7 +198,7 @@ func resolveCursorLine(p *TextPositionParams) (
 	return m, committedLineIdx, indexInLine, pos0, pos1, count, false
 }
 
-// PositionWithinLogicalLine returns the cursor's committed-text logical-line
+// PositionWithinLogicalLine returns the caret's committed-text logical-line
 // index and its visual position(s). pos.Top / pos.Bottom are measured from
 // the start of the line at lineIdx, not the document top.
 //
@@ -207,7 +207,7 @@ func resolveCursorLine(p *TextPositionParams) (
 // needing the slow whole-document fallback in that case should call
 // [TextPositionFromIndex].
 func PositionWithinLogicalLine(p *TextPositionParams) (lineIdx int, position0, position1 TextPosition, count int) {
-	_, committedLineIdx, _, pos0, pos1, c, slowPath := resolveCursorLine(p)
+	_, committedLineIdx, _, pos0, pos1, c, slowPath := resolveCaretLine(p)
 	if slowPath || c == 0 {
 		return 0, TextPosition{}, TextPosition{}, 0
 	}
@@ -219,7 +219,7 @@ func PositionWithinLogicalLine(p *TextPositionParams) (lineIdx int, position0, p
 // (p.LogicalLineIndexHint, p.VisualLineIndexHint); count is 1, or 2 at line-
 // break boundaries.
 func TextPositionFromIndex(p *TextPositionParams) (position0, position1 TextPosition, count int) {
-	m, committedLineIdx, indexInLine, pos0, pos1, c, slowPath := resolveCursorLine(p)
+	m, committedLineIdx, indexInLine, pos0, pos1, c, slowPath := resolveCaretLine(p)
 	if slowPath {
 		return textPositionFromIndex(p.Width, p.RenderingTextRange(0, p.RenderingTextLength), nil, p.Index, p.Options)
 	}

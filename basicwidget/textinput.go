@@ -143,10 +143,10 @@ func (t *TextInput) SetAutoWrap(autoWrap bool) {
 	t.textInput.SetAutoWrap(autoWrap)
 }
 
-// SetCursorBlinking sets whether the cursor blinks.
+// SetCaretBlinking sets whether the caret blinks.
 // The default value is true.
-func (t *TextInput) SetCursorBlinking(cursorBlinking bool) {
-	t.textInput.SetCursorBlinking(cursorBlinking)
+func (t *TextInput) SetCaretBlinking(caretBlinking bool) {
+	t.textInput.SetCaretBlinking(caretBlinking)
 }
 
 // SetSelectionVisibleWhenUnfocused sets whether the selection range stays
@@ -368,7 +368,7 @@ type textInput struct {
 	paddingEnd   int
 
 	onTextScrollDelta    func(context *guigui.Context, deltaX, deltaY float64)
-	onTextScrollIntoView func(context *guigui.Context, start, end cursorScrollTarget)
+	onTextScrollIntoView func(context *guigui.Context, start, end caretScrollTarget)
 }
 
 func (t *textInput) OnValueChanged(f func(context *guigui.Context, text string, committed bool)) {
@@ -447,8 +447,8 @@ func (t *textInput) SetAutoWrap(autoWrap bool) {
 	t.text.Text().SetAutoWrap(autoWrap)
 }
 
-func (t *textInput) SetCursorBlinking(cursorBlinking bool) {
-	t.text.Text().SetCursorBlinking(cursorBlinking)
+func (t *textInput) SetCaretBlinking(caretBlinking bool) {
+	t.text.Text().SetCaretBlinking(caretBlinking)
 }
 
 func (t *textInput) SetSelectionVisibleWhenUnfocused(visible bool) {
@@ -559,8 +559,8 @@ func (t *textInput) Build(context *guigui.Context, adder *guigui.ChildAdder) err
 	t.text.Text().onScrollDelta(t.onTextScrollDelta)
 
 	if t.onTextScrollIntoView == nil {
-		t.onTextScrollIntoView = func(context *guigui.Context, start, end cursorScrollTarget) {
-			t.text.scrollCursorIntoView(context, start, end)
+		t.onTextScrollIntoView = func(context *guigui.Context, start, end caretScrollTarget) {
+			t.text.scrollCaretIntoView(context, start, end)
 		}
 	}
 	t.text.Text().onScrollIntoView(t.onTextScrollIntoView)
@@ -830,8 +830,8 @@ func (t *textInputText) setPanel(p *virtualScrollPanel) {
 //
 // The result is clamped up to at least the container width so the *Text
 // widget always covers the full viewport horizontally and clicks anywhere
-// inside the panel reach it (cursor I-beam, click-to-focus,
-// click-to-position-cursor).
+// inside the panel reach it (I-beam mouse pointer, click-to-focus,
+// click-to-position-caret).
 func (t *textInputText) contentWidth(context *guigui.Context) int {
 	txt := t.text.Widget()
 	// AutoWrap text wraps at the viewport width, so short-circuit to the
@@ -924,7 +924,7 @@ func (t *textInputText) measureItemHeight(context *guigui.Context, lineIndex int
 	return height
 }
 
-// scrollCursorIntoView scrolls the panel to bring the selection into view.
+// scrollCaretIntoView scrolls the panel to bring the selection into view.
 // start and end are the selection endpoints (start <= end as byte indices),
 // equal when the selection has zero width. end has priority — if it isn't
 // fully visible, scroll for it. Otherwise, if start is off-viewport, scroll
@@ -932,7 +932,7 @@ func (t *textInputText) measureItemHeight(context *guigui.Context, lineIndex int
 //
 // The X axis accumulates contributions from both endpoints, matching the
 // legacy textEventScrollDelta semantics.
-func (t *textInputText) scrollCursorIntoView(context *guigui.Context, start, end cursorScrollTarget) {
+func (t *textInputText) scrollCaretIntoView(context *guigui.Context, start, end caretScrollTarget) {
 	if t.panel == nil {
 		return
 	}
@@ -950,7 +950,7 @@ func (t *textInputText) scrollCursorIntoView(context *guigui.Context, start, end
 
 // scrollEdgeIntoView scrolls the panel so target is visible, returning true
 // when a scroll was applied. Walks at most one viewport's worth of items.
-func (t *textInputText) scrollEdgeIntoView(context *guigui.Context, target cursorScrollTarget) bool {
+func (t *textInputText) scrollEdgeIntoView(context *guigui.Context, target caretScrollTarget) bool {
 	n := t.itemCount()
 	if n == 0 {
 		return false
@@ -981,8 +981,8 @@ func (t *textInputText) scrollEdgeIntoView(context *guigui.Context, target curso
 			return false
 		}
 		if idx == lineIdx {
-			if cursorBottomY := y + target.Bottom; cursorBottomY > viewportBottom {
-				diff := int(math.Ceil(cursorBottomY - viewportBottom))
+			if caretBottomY := y + target.Bottom; caretBottomY > viewportBottom {
+				diff := int(math.Ceil(caretBottomY - viewportBottom))
 				t.panel.setTopItem(topIdx, topOff-diff)
 				return true
 			}
