@@ -84,7 +84,7 @@ var (
 
 type ListItem[T comparable] struct {
 	Text         string
-	TextColor    color.Color
+	TextStyle    TextStyle
 	Header       bool
 	Content      guigui.Widget
 	KeyText      string
@@ -106,7 +106,7 @@ func (l *ListItem[T]) selectable() bool {
 // writeStateKey writes the item's state into w.
 func (l *ListItem[T]) writeStateKey(w *guigui.StateKeyWriter) {
 	w.WriteString(l.Text)
-	writeColor(w, l.TextColor)
+	l.TextStyle.writeStateKey(w)
 	w.WriteBool(l.Header)
 	w.WriteWidget(l.Content)
 	w.WriteString(l.KeyText)
@@ -435,6 +435,9 @@ type listItemWidget[T comparable] struct {
 	layout             guigui.LinearLayout
 	layoutItems        []guigui.LinearLayoutItem
 	wrapperLayoutItems []guigui.LinearLayoutItem
+
+	textCenterLayout      guigui.LinearLayout
+	textCenterLayoutItems []guigui.LinearLayoutItem
 }
 
 func (l *listItemWidget[T]) WriteStateKey(w *guigui.StateKeyWriter) {
@@ -472,7 +475,7 @@ func (l *listItemWidget[T]) setText(text string) {
 }
 
 func (l *listItemWidget[T]) textColor() color.Color {
-	return l.item.TextColor
+	return l.item.TextStyle.Color
 }
 
 func (l *listItemWidget[T]) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
@@ -484,7 +487,11 @@ func (l *listItemWidget[T]) Build(context *guigui.Context, adder *guigui.ChildAd
 	adder.AddWidget(&l.keyText)
 
 	l.text.SetValue(l.item.Text)
-	l.text.SetVerticalAlign(VerticalAlignMiddle)
+	l.text.SetHorizontalAlign(l.item.TextStyle.HorizontalAlign)
+	l.text.SetVerticalAlign(l.item.TextStyle.VerticalAlign)
+	l.text.SetBold(l.item.TextStyle.Bold)
+	l.text.SetTabular(l.item.TextStyle.Tabular)
+	l.text.SetWrapMode(l.item.TextStyle.WrapMode)
 	l.keyText.SetOpacity(0.5)
 	l.keyText.SetValue(l.item.KeyText)
 	l.keyText.SetVerticalAlign(VerticalAlignMiddle)
@@ -498,6 +505,8 @@ func (l *listItemWidget[T]) Build(context *guigui.Context, adder *guigui.ChildAd
 func (l *listItemWidget[T]) resetLayout() {
 	l.layout = guigui.LinearLayout{}
 	l.layoutItems = slices.Delete(l.layoutItems, 0, len(l.layoutItems))
+	l.textCenterLayout = guigui.LinearLayout{}
+	l.textCenterLayoutItems = slices.Delete(l.textCenterLayoutItems, 0, len(l.textCenterLayoutItems))
 }
 
 func (l *listItemWidget[T]) ensureLayout(context *guigui.Context) guigui.LinearLayout {
@@ -516,9 +525,21 @@ func (l *listItemWidget[T]) ensureLayout(context *guigui.Context) guigui.LinearL
 			Size:   guigui.FlexibleSize(1),
 		})
 	} else {
+		// Wrap the text in a vertical layout with flexible spacers above and
+		// below so the text widget collapses to its intrinsic height and is
+		// vertically centered within the row.
+		l.textCenterLayoutItems = append(l.textCenterLayoutItems,
+			guigui.LinearLayoutItem{Size: guigui.FlexibleSize(1)},
+			guigui.LinearLayoutItem{Widget: &l.text},
+			guigui.LinearLayoutItem{Size: guigui.FlexibleSize(1)},
+		)
+		l.textCenterLayout = guigui.LinearLayout{
+			Direction: guigui.LayoutDirectionVertical,
+			Items:     l.textCenterLayoutItems,
+		}
 		// TODO: Use bold font to measure the size, maybe?
 		l.layoutItems = append(l.layoutItems, guigui.LinearLayoutItem{
-			Widget: &l.text,
+			Layout: l.textCenterLayout,
 			Size:   guigui.FlexibleSize(1),
 		})
 		layout.Padding = ListItemTextPadding(context)

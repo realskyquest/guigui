@@ -5,7 +5,6 @@ package basicwidget
 
 import (
 	"image"
-	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -19,7 +18,7 @@ var (
 
 type PopupMenuItem[T comparable] struct {
 	Text         string
-	TextColor    color.Color
+	TextStyle    TextStyle
 	Header       bool
 	Content      guigui.Widget
 	KeyText      string
@@ -174,7 +173,7 @@ func (p *PopupMenu[T]) updateListItems() {
 	for i, item := range p.items {
 		// Copy each member one by one to avoid runtime.duffcopy.
 		p.listItems[i].Text = item.Text
-		p.listItems[i].TextColor = item.TextColor
+		p.listItems[i].TextStyle = item.TextStyle
 		p.listItems[i].Header = item.Header
 		p.listItems[i].Content = item.Content
 		p.listItems[i].KeyText = item.KeyText

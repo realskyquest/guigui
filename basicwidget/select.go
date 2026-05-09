@@ -5,7 +5,6 @@ package basicwidget
 
 import (
 	"image"
-	"image/color"
 	"slices"
 
 	"github.com/guigui-gui/guigui"
@@ -17,7 +16,7 @@ var (
 
 type SelectItem[T comparable] struct {
 	Text         string
-	TextColor    color.Color
+	TextStyle    TextStyle
 	Header       bool
 	Content      guigui.Widget
 	Unselectable bool
@@ -53,7 +52,7 @@ func (s *Select[T]) updatePopupMenuItems() {
 	for i, item := range s.items {
 		pmItem := PopupMenuItem[T]{
 			Text:         item.Text,
-			TextColor:    item.TextColor,
+			TextStyle:    item.TextStyle,
 			Header:       item.Header,
 			Content:      item.Content,
 			Unselectable: item.Unselectable,

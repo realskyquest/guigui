@@ -5,7 +5,6 @@ package basicwidget
 
 import (
 	"image"
-	"image/color"
 	"slices"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -51,13 +50,9 @@ func (t *TableRow[T]) selectable() bool {
 }
 
 type TableCell struct {
-	Text                string
-	TextColor           color.Color
-	TextHorizontalAlign HorizontalAlign
-	TextVerticalAlign   VerticalAlign
-	TextBold            bool
-	TextTabular         bool
-	Content             guigui.Widget
+	Text      string
+	TextStyle TextStyle
+	Content   guigui.Widget
 }
 
 func (t *Table[T]) SetColumns(columns []TableColumn) {
@@ -323,11 +318,11 @@ func (t *tableRowWidget[T]) ensureTexts() {
 		txt := t.texts.At(i)
 		txt.SetValue(cell.Text)
 		// Color is adjusted at Layout.
-		txt.SetHorizontalAlign(cell.TextHorizontalAlign)
-		txt.SetVerticalAlign(cell.TextVerticalAlign)
-		txt.SetBold(cell.TextBold)
-		txt.SetTabular(cell.TextTabular)
-		txt.SetWrapMode(WrapModeWord)
+		txt.SetHorizontalAlign(cell.TextStyle.HorizontalAlign)
+		txt.SetVerticalAlign(cell.TextStyle.VerticalAlign)
+		txt.SetBold(cell.TextStyle.Bold)
+		txt.SetTabular(cell.TextStyle.Tabular)
+		txt.SetWrapMode(cell.TextStyle.WrapMode)
 	}
 }
 
@@ -386,8 +381,8 @@ func (t *tableRowWidget[T]) Layout(context *guigui.Context, widgetBounds *guigui
 			if i >= t.texts.Len() {
 				break
 			}
-			if cell.TextColor != nil {
-				t.texts.At(i).SetColor(cell.TextColor)
+			if cell.TextStyle.Color != nil {
+				t.texts.At(i).SetColor(cell.TextStyle.Color)
 			} else {
 				t.texts.At(i).SetColor(clr)
 			}

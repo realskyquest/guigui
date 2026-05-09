@@ -62,6 +62,26 @@ const (
 	WrapModeAnywhere WrapMode = WrapMode(textutil.WrapModeAnywhere)
 )
 
+// TextStyle bundles the styling attributes applied to the fallback text
+// rendered when a widget's Content is nil.
+type TextStyle struct {
+	Color           color.Color
+	HorizontalAlign HorizontalAlign
+	VerticalAlign   VerticalAlign
+	Bold            bool
+	Tabular         bool
+	WrapMode        WrapMode
+}
+
+func (s TextStyle) writeStateKey(w *guigui.StateKeyWriter) {
+	writeColor(w, s.Color)
+	w.WriteUint64(uint64(s.HorizontalAlign))
+	w.WriteUint64(uint64(s.VerticalAlign))
+	w.WriteBool(s.Bold)
+	w.WriteBool(s.Tabular)
+	w.WriteUint64(uint64(s.WrapMode))
+}
+
 var (
 	textEventValueChanged            guigui.EventKey = guigui.GenerateEventKey()
 	textEventValueChangedWithoutText guigui.EventKey = guigui.GenerateEventKey()
