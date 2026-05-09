@@ -146,8 +146,15 @@ func (t *TextInput) SetVerticalAlign(valign VerticalAlign) {
 	t.textInput.SetVerticalAlign(valign)
 }
 
-func (t *TextInput) SetAutoWrap(autoWrap bool) {
-	t.textInput.SetAutoWrap(autoWrap)
+// WrapMode reports the [WrapMode] currently applied to this text input.
+func (t *TextInput) WrapMode() WrapMode {
+	return t.textInput.WrapMode()
+}
+
+// SetWrapMode sets how visual lines wrap when text exceeds the available
+// width. See [WrapMode] for the available modes.
+func (t *TextInput) SetWrapMode(wrapMode WrapMode) {
+	t.textInput.SetWrapMode(wrapMode)
 }
 
 // SetCaretBlinking sets whether the caret blinks.
@@ -454,8 +461,12 @@ func (t *textInput) SetVerticalAlign(valign VerticalAlign) {
 	t.text.SetVerticalAlign(valign)
 }
 
-func (t *textInput) SetAutoWrap(autoWrap bool) {
-	t.text.Text().SetAutoWrap(autoWrap)
+func (t *textInput) WrapMode() WrapMode {
+	return t.text.Text().WrapMode()
+}
+
+func (t *textInput) SetWrapMode(wrapMode WrapMode) {
+	t.text.Text().SetWrapMode(wrapMode)
 }
 
 func (t *textInput) SetCaretBlinking(caretBlinking bool) {
@@ -750,7 +761,7 @@ type textInputText struct {
 	// vAlign is the user-set vertical alignment for the TextInput. The inner
 	// [*Text] widget is intentionally left at its default ([VerticalAlignTop])
 	// so its own per-line shaping (via [Text.textContentBounds] /
-	// [Text.textHeight]) doesn't run on every Draw - dominant for autoWrap
+	// [Text.textHeight]) doesn't run on every Draw - dominant for wrapped
 	// on multi-megabyte buffers. Instead, [textInputText.Layout] applies
 	// vAlign as a Min.Y shift on textBounds when the document fits the
 	// viewport; when it overflows, vAlign is moot and the panel's scroll
@@ -822,7 +833,7 @@ func (t *textInputText) Build(context *guigui.Context, adder *guigui.ChildAdder)
 
 	t.text.Widget().SetSelectable(true)
 	t.text.Widget().SetColor(basicwidgetdraw.TextColor(context.ColorMode(), context.IsEnabled(t)))
-	t.text.Widget().setKeepTailingSpace(!t.text.Widget().autoWrap)
+	t.text.Widget().setKeepTailingSpace(t.text.Widget().wrapMode == WrapModeNone)
 
 	context.DelegateFocus(t, t.text.Widget())
 
@@ -845,13 +856,13 @@ func (t *textInputText) setPanel(p *virtualScrollPanel) {
 // click-to-position-caret).
 func (t *textInputText) contentWidth(context *guigui.Context) int {
 	txt := t.text.Widget()
-	// AutoWrap text wraps at the viewport width, so short-circuit to the
+	// Wrapped text wraps at the viewport width, so short-circuit to the
 	// container width even though individual long words can still overflow.
 	// This avoids returning a stale wide measuredMaxWidth carried over from
-	// a prior non-autoWrap state, which would lay the content out wider
-	// than the viewport and make autoWrap appear inert (the *Text would
+	// a prior [WrapModeNone] state, which would lay the content out wider
+	// than the viewport and make wrapping appear inert (the *Text would
 	// have plenty of horizontal room and stop wrapping).
-	if txt.autoWrap {
+	if txt.wrapMode != WrapModeNone {
 		return t.containerBounds.Dx()
 	}
 	var measured int
@@ -881,7 +892,7 @@ func (t *textInputText) viewportPaddingY(_ *guigui.Context) int {
 // height of one logical line at the panel's current content width, cached
 // for the lifetime of the current virtualized Layout.
 //
-// For non-autoWrap text every logical line is exactly one visual line, so
+// For [WrapModeNone] text every logical line is exactly one visual line, so
 // the height is constant and shaping is skipped entirely; this keeps dense
 // walks (e.g. dragging the V scroll thumb across a multi-million-line
 // document) O(N) trivial. The horizontal scroll bar's [textInputText.measuredMaxWidth]
@@ -901,7 +912,7 @@ func (t *textInputText) measureItemHeight(context *guigui.Context, lineIndex int
 	}
 
 	var height int
-	if !txt.autoWrap {
+	if txt.wrapMode == WrapModeNone {
 		height = int(math.Ceil(txt.lineHeight(context)))
 	} else {
 		start := txt.lineByteOffsets.ByteOffsetByLineIndex(lineIndex)
@@ -918,11 +929,11 @@ func (t *textInputText) measureItemHeight(context *guigui.Context, lineIndex int
 		}
 
 		_, h := textutil.MeasureLogicalLine(
-			width, logicalLine, txt.autoWrap, txt.face(context, false),
+			width, logicalLine, textutil.WrapMode(txt.wrapMode), txt.face(context, false),
 			txt.lineHeight(context), txt.actualTabWidth(context), txt.keepTailingSpace, "",
 		)
 		height = int(math.Ceil(h))
-		// For autoWrap, [textInputText.contentWidth] short-circuits to
+		// For wrapped text, [textInputText.contentWidth] short-circuits to
 		// containerBounds.Dx() and never reads measuredMaxWidth, so there
 		// is no width to track here.
 	}
@@ -1031,12 +1042,12 @@ func (t *textInputText) scrollEdgeIntoView(context *guigui.Context, target caret
 // measureMaxWidthForViewport runs after [textInputText.Layout]'s
 // height-only walks and records the widest viewport line into
 // [textInputText.measuredMaxWidth] so the horizontal scroll bar can size
-// its thumb. Only non-autoWrap multiline text needs this; for autoWrap
+// its thumb. Only [WrapModeNone] multiline text needs this; for wrapped
 // or single-line text [textInputText.contentWidth] computes the width
 // itself and ignores measuredMaxWidth.
 func (t *textInputText) measureMaxWidthForViewport(context *guigui.Context) {
 	txt := t.text.Widget()
-	if txt.autoWrap || !txt.IsMultiline() || len(t.measuredLineHeights) == 0 {
+	if txt.wrapMode != WrapModeNone || !txt.IsMultiline() || len(t.measuredLineHeights) == 0 {
 		return
 	}
 	txt.ensureLineByteOffsets()
@@ -1056,7 +1067,7 @@ func (t *textInputText) measureMaxWidthForViewport(context *guigui.Context) {
 		}
 		logicalLine := txt.stringValueWithRange(start, end)
 		w, _ := textutil.MeasureLogicalLine(
-			math.MaxInt, logicalLine, false, face,
+			math.MaxInt, logicalLine, textutil.WrapModeNone, face,
 			lineHeight, tabWidth, keepTailingSpace, "",
 		)
 		if mw := int(math.Ceil(w)) + t.padding.Start + t.padding.End; mw > t.measuredMaxWidth {
@@ -1137,7 +1148,7 @@ func (t *textInputText) Layout(context *guigui.Context, widgetBounds *guigui.Wid
 	// in [textInputText.measuredLineHeights]), measure their widths once
 	// to size the horizontal scroll bar. Done as a separate pass so that
 	// [textInputText.measureItemHeight] can stay shaping-free for non-
-	// autoWrap text on dense walks.
+	// wrapped text on dense walks.
 	t.measureMaxWidthForViewport(context)
 
 }

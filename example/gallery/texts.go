@@ -21,8 +21,8 @@ type Texts struct {
 	horizontalAlignSegmentedControl basicwidget.SegmentedControl[basicwidget.HorizontalAlign]
 	verticalAlignText               basicwidget.Text
 	verticalAlignSegmentedControl   basicwidget.SegmentedControl[basicwidget.VerticalAlign]
-	autoWrapText                    basicwidget.Text
-	autoWrapToggle                  basicwidget.Toggle
+	wrapModeText                    basicwidget.Text
+	wrapModeSegmentedControl        basicwidget.SegmentedControl[basicwidget.WrapMode]
 	ellipsisText                    basicwidget.Text
 	ellipsisToggle                  basicwidget.Toggle
 	boldText                        basicwidget.Text
@@ -121,11 +121,30 @@ func (t *Texts) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 	})
 	t.verticalAlignSegmentedControl.SelectItemByValue(model.Texts().VerticalAlign())
 
-	t.autoWrapText.SetValue("Auto wrap")
-	t.autoWrapToggle.OnValueChanged(func(context *guigui.Context, value bool) {
-		model.Texts().SetAutoWrap(value)
+	t.wrapModeText.SetValue("Wrap mode")
+	t.wrapModeSegmentedControl.SetItems([]basicwidget.SegmentedControlItem[basicwidget.WrapMode]{
+		{
+			Text:  "None",
+			Value: basicwidget.WrapModeNone,
+		},
+		{
+			Text:  "Word",
+			Value: basicwidget.WrapModeWord,
+		},
+		{
+			Text:  "Anywhere",
+			Value: basicwidget.WrapModeAnywhere,
+		},
 	})
-	t.autoWrapToggle.SetValue(model.Texts().AutoWrap())
+	t.wrapModeSegmentedControl.OnItemSelected(func(context *guigui.Context, index int) {
+		item, ok := t.wrapModeSegmentedControl.ItemByIndex(index)
+		if !ok {
+			model.Texts().SetWrapMode(basicwidget.WrapModeWord)
+			return
+		}
+		model.Texts().SetWrapMode(item.Value)
+	})
+	t.wrapModeSegmentedControl.SelectItemByValue(model.Texts().WrapMode())
 
 	t.ellipsisText.SetValue("Ellipsis")
 	t.ellipsisToggle.OnValueChanged(func(context *guigui.Context, value bool) {
@@ -161,8 +180,8 @@ func (t *Texts) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 			SecondaryWidget: &t.verticalAlignSegmentedControl,
 		},
 		{
-			PrimaryWidget:   &t.autoWrapText,
-			SecondaryWidget: &t.autoWrapToggle,
+			PrimaryWidget:   &t.wrapModeText,
+			SecondaryWidget: &t.wrapModeSegmentedControl,
 		},
 		{
 			PrimaryWidget:   &t.ellipsisText,
@@ -185,7 +204,7 @@ func (t *Texts) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 	t.sampleText.SetMultiline(true)
 	t.sampleText.SetHorizontalAlign(model.Texts().HorizontalAlign())
 	t.sampleText.SetVerticalAlign(model.Texts().VerticalAlign())
-	t.sampleText.SetAutoWrap(model.Texts().AutoWrap())
+	t.sampleText.SetWrapMode(model.Texts().WrapMode())
 	t.sampleText.SetBold(model.Texts().Bold())
 	t.sampleText.SetSelectable(model.Texts().Selectable())
 	t.sampleText.SetEditable(model.Texts().Editable())

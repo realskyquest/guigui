@@ -327,7 +327,7 @@ func (t *tableRowWidget[T]) ensureTexts() {
 		txt.SetVerticalAlign(cell.TextVerticalAlign)
 		txt.SetBold(cell.TextBold)
 		txt.SetTabular(cell.TextTabular)
-		txt.SetAutoWrap(true)
+		txt.SetWrapMode(WrapModeWord)
 	}
 }
 

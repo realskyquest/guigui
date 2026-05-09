@@ -20,7 +20,7 @@ type lineMeasurer struct {
 	face               text.Face
 	tabWidth           float64
 	keepTailingSpace   bool
-	autoWrap           bool
+	wrapMode           WrapMode
 	composition        CompositionInfo
 }
 
@@ -47,12 +47,13 @@ func (m *lineMeasurer) renderingRange(idx int) (start, end int) {
 }
 
 // visualLineCount returns the rendering-plane visual-line count of the
-// logical line at idx. For non-autoWrap text this is always 1; for
-// autoWrap it shapes the line content via VisualLineCountForLogicalLine.
+// logical line at idx. For [WrapModeNone] text this is always 1; for
+// other wrap modes it shapes the line content via
+// VisualLineCountForLogicalLine.
 func (m *lineMeasurer) visualLineCount(idx int) int {
-	if !m.autoWrap {
+	if m.wrapMode == WrapModeNone {
 		return 1
 	}
 	s, e := m.renderingRange(idx)
-	return VisualLineCountForLogicalLine(m.width, m.renderingTextRange(s, e), true, m.face, m.tabWidth, m.keepTailingSpace)
+	return VisualLineCountForLogicalLine(m.width, m.renderingTextRange(s, e), m.wrapMode, m.face, m.tabWidth, m.keepTailingSpace)
 }

@@ -34,7 +34,7 @@ type Root struct {
 
 	doc           Document
 	initialPath   string
-	wordWrap      bool
+	wrapMode      basicwidget.WrapMode
 	inited        bool
 	exitRequested bool
 	exitAfterSave bool
@@ -76,7 +76,7 @@ func (r *Root) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 	r.editor.SetMultiline(true)
 	r.editor.SetSelectionVisibleWhenUnfocused(true)
 	r.editor.SetFocusBorderVisible(false)
-	r.editor.SetAutoWrap(r.wordWrap)
+	r.editor.SetWrapMode(r.wrapMode)
 
 	if !r.inited {
 		if r.initialPath != "" {
@@ -131,7 +131,7 @@ func (r *Root) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 	r.menubar.SetCanCut(r.editor.CanCut())
 	r.menubar.SetCanCopy(r.editor.CanCopy())
 	r.menubar.SetCanPaste(r.editor.CanPaste())
-	r.menubar.SetWordWrap(r.wordWrap)
+	r.menubar.SetWrapMode(r.wrapMode)
 
 	r.menubar.OnNew(func(context *guigui.Context) {
 		r.actionNew()
@@ -166,8 +166,8 @@ func (r *Root) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 	r.menubar.OnSelectAll(func(context *guigui.Context) {
 		r.editor.SelectAll()
 	})
-	r.menubar.OnToggleWordWrap(func(context *guigui.Context) {
-		r.wordWrap = !r.wordWrap
+	r.menubar.OnWrapModeSelected(func(context *guigui.Context, wrapMode basicwidget.WrapMode) {
+		r.wrapMode = wrapMode
 	})
 	r.menubar.OnAbout(func(context *guigui.Context) {
 		r.infoDialog.Open()

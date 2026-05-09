@@ -30,7 +30,7 @@ func withoutSidecar(p *textutil.TextPositionParams) *textutil.TextPositionParams
 // committed-text visual-line count from line 0 up to lineIdx — used by
 // tests to compute VisualLineIndexHint values for non-zero
 // LogicalLineIndexHint inputs.
-func precedingVisualLineCountFromString(committed string, width int, autoWrap bool, face text.Face, tabWidth float64, keepTailingSpace bool) func(int) int {
+func precedingVisualLineCountFromString(committed string, width int, wrapMode textutil.WrapMode, face text.Face, tabWidth float64, keepTailingSpace bool) func(int) int {
 	var l textutil.LineByteOffsets
 	rebuildFromString(&l, committed)
 	return func(lineIdx int) int {
@@ -48,7 +48,7 @@ func precedingVisualLineCountFromString(committed string, width int, autoWrap bo
 			if i+1 < n {
 				end = l.ByteOffsetByLineIndex(i + 1)
 			}
-			sum += textutil.VisualLineCountForLogicalLine(width, committed[start:end], autoWrap, face, tabWidth, keepTailingSpace)
+			sum += textutil.VisualLineCountForLogicalLine(width, committed[start:end], wrapMode, face, tabWidth, keepTailingSpace)
 		}
 		return sum
 	}
@@ -188,8 +188,8 @@ func TestTextPositionFromIndex(t *testing.T) {
 // TestTextPositionFromIndexSidecarParity sweeps every byte index in a
 // variety of inputs and asserts that the sidecar-accelerated path
 // returns the same (pos0, pos1, count) as the unrestricted whole-
-// document fallback. Covers both autoWrap modes and content with
-// multibyte runes, trailing breaks, and CRLF.
+// document fallback. Covers all wrap modes and content with multibyte
+// runes, trailing breaks, and CRLF.
 func TestTextPositionFromIndexSidecarParity(t *testing.T) {
 	const lineHeight = 24.0
 	face := newTestFace(t)
@@ -210,14 +210,14 @@ func TestTextPositionFromIndexSidecarParity(t *testing.T) {
 		{"only breaks", "\n\n\n"},
 	}
 
-	for _, autoWrap := range []bool{false, true} {
+	for _, wrapMode := range []textutil.WrapMode{textutil.WrapModeNone, textutil.WrapModeWord, textutil.WrapModeAnywhere} {
 		for _, tc := range cases {
-			t.Run(tc.name+autoWrapSuffix(autoWrap), func(t *testing.T) {
+			t.Run(tc.name+wrapModeSuffix(wrapMode), func(t *testing.T) {
 				const width = math.MaxInt
 				op := &textutil.Options{
 					Face:       face,
 					LineHeight: lineHeight,
-					AutoWrap:   autoWrap,
+					WrapMode:   wrapMode,
 				}
 				var l textutil.LineByteOffsets
 				rebuildFromString(&l, tc.str)
@@ -249,17 +249,17 @@ func TestTextPositionFromIndexSidecarParity(t *testing.T) {
 	}
 }
 
-// TestTextPositionFromIndexSidecarAutoWrap exercises the autoWrap-with-
-// real-wrapping path: a single long logical line that wraps at a narrow
-// width into multiple visual sublines. The sidecar path must produce
-// the same Y/X across every visual subline boundary.
-func TestTextPositionFromIndexSidecarAutoWrap(t *testing.T) {
+// TestTextPositionFromIndexSidecarWordWrap exercises the [WrapModeWord]
+// path with real width-induced wrapping: a single long logical line that
+// wraps at a narrow width into multiple visual sublines. The sidecar
+// path must produce the same Y/X across every visual subline boundary.
+func TestTextPositionFromIndexSidecarWordWrap(t *testing.T) {
 	const lineHeight = 24.0
 	face := newTestFace(t)
 	op := &textutil.Options{
 		Face:       face,
 		LineHeight: lineHeight,
-		AutoWrap:   true,
+		WrapMode:   textutil.WrapModeWord,
 	}
 
 	// Multiple logical lines, the middle one wraps.
@@ -297,7 +297,7 @@ func TestTextPositionFromIndexSidecarAutoWrap(t *testing.T) {
 // caller's contract: pass (LogicalLineIndexHint = firstVisibleLine,
 // VisualLineIndexHint = 0) so the returned pos.Top is measured from
 // the top of the first visible line rather than the document top. The
-// walk must step from the hint regardless of autoWrap — a non-autoWrap
+// walk must step from the hint regardless of wrap mode — a [WrapModeNone]
 // shortcut that treated the result as absolute would land cursors far
 // above the viewport once the caller scrolls.
 func TestTextPositionFromIndexViewportRelativeHint(t *testing.T) {
@@ -313,12 +313,12 @@ func TestTextPositionFromIndexViewportRelativeHint(t *testing.T) {
 	}
 	str := string(sb)
 
-	for _, autoWrap := range []bool{false, true} {
-		t.Run(autoWrapSuffix(autoWrap), func(t *testing.T) {
-			op := &textutil.Options{Face: face, LineHeight: lineHeight, AutoWrap: autoWrap}
+	for _, wrapMode := range []textutil.WrapMode{textutil.WrapModeNone, textutil.WrapModeWord} {
+		t.Run(wrapModeSuffix(wrapMode), func(t *testing.T) {
+			op := &textutil.Options{Face: face, LineHeight: lineHeight, WrapMode: wrapMode}
 			var l textutil.LineByteOffsets
 			rebuildFromString(&l, str)
-			precVL := precedingVisualLineCountFromString(str, math.MaxInt, autoWrap, face, 0, false)
+			precVL := precedingVisualLineCountFromString(str, math.MaxInt, wrapMode, face, 0, false)
 
 			for _, firstVisible := range []int{0, 1, 10, 30, 49} {
 				offset := float64(precVL(firstVisible)) * lineHeight
@@ -395,14 +395,14 @@ func TestTextPositionFromIndexSidecarComposition(t *testing.T) {
 		{"insert at line1 start", "abc\ndef", comp{sStart: 4, sEnd: 4, compLen: 2, composition: "YZ"}},
 	}
 
-	for _, autoWrap := range []bool{false, true} {
+	for _, wrapMode := range []textutil.WrapMode{textutil.WrapModeNone, textutil.WrapModeWord} {
 		for _, tc := range cases {
-			t.Run(tc.name+autoWrapSuffix(autoWrap), func(t *testing.T) {
+			t.Run(tc.name+wrapModeSuffix(wrapMode), func(t *testing.T) {
 				const width = math.MaxInt
 				op := &textutil.Options{
 					Face:       face,
 					LineHeight: lineHeight,
-					AutoWrap:   autoWrap,
+					WrapMode:   wrapMode,
 				}
 				rendering := tc.committed[:tc.c.sStart] + tc.c.composition + tc.committed[tc.c.sEnd:]
 				if len(tc.c.composition) != tc.c.compLen {
@@ -556,14 +556,14 @@ func TestPositionWithinLogicalLineParity(t *testing.T) {
 		},
 	}
 
-	for _, autoWrap := range []bool{false, true} {
+	for _, wrapMode := range []textutil.WrapMode{textutil.WrapModeNone, textutil.WrapModeWord, textutil.WrapModeAnywhere} {
 		for _, tc := range cases {
-			t.Run(tc.name+autoWrapSuffix(autoWrap), func(t *testing.T) {
+			t.Run(tc.name+wrapModeSuffix(wrapMode), func(t *testing.T) {
 				const width = math.MaxInt
-				op := &textutil.Options{Face: face, LineHeight: lineHeight, AutoWrap: autoWrap}
+				op := &textutil.Options{Face: face, LineHeight: lineHeight, WrapMode: wrapMode}
 				var l textutil.LineByteOffsets
 				rebuildFromString(&l, tc.str)
-				precVL := precedingVisualLineCountFromString(tc.str, width, autoWrap, face, 0, false)
+				precVL := precedingVisualLineCountFromString(tc.str, width, wrapMode, face, 0, false)
 				params := &textutil.TextPositionParams{
 					RenderingTextRange:  func(start, end int) string { return tc.str[start:end] },
 					RenderingTextLength: len(tc.str),

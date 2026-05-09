@@ -87,7 +87,7 @@ func truncateWithEllipsis(str string, ellipsis string, maxWidth float64, face te
 }
 
 type Options struct {
-	AutoWrap         bool
+	WrapMode         WrapMode
 	Face             text.Face
 	LineHeight       float64
 	HorizontalAlign  HorizontalAlign
@@ -96,6 +96,19 @@ type Options struct {
 	KeepTailingSpace bool
 	EllipsisString   string
 }
+
+// WrapMode selects how visual lines wrap when text exceeds the available
+// width. The basicwidget package mirrors this enum for its public API.
+type WrapMode int
+
+const (
+	// WrapModeNone disables automatic wrapping.
+	WrapModeNone WrapMode = iota
+	// WrapModeWord wraps at Unicode line break opportunities.
+	WrapModeWord
+	// WrapModeAnywhere wraps at any grapheme cluster boundary.
+	WrapModeAnywhere
+)
 
 type HorizontalAlign int
 
@@ -120,7 +133,7 @@ func visibleCulsters(str string, face text.Face) []text.Glyph {
 }
 
 // visualLine is one rendered row of pixels: the unit yielded by visualLines
-// and consumed by Draw / position helpers. With autoWrap on, a single
+// and consumed by Draw / position helpers. With wrapping on, a single
 // hard-break-delimited "logical line" can decompose into multiple visualLines.
 type visualLine struct {
 	pos int
@@ -144,13 +157,15 @@ func init() {
 }
 
 // visualLines yields the visual sublines (rendered rows) of str at the given
-// width. With autoWrap on, hard-break-delimited segments may further split
-// at width-based wrap opportunities.
-func visualLines(width int, str string, autoWrap bool, advance func(str string) float64) iter.Seq[visualLine] {
+// width. For [WrapModeWord] and [WrapModeAnywhere], hard-break-delimited
+// segments may further split at width-based wrap opportunities — at Unicode
+// line break opportunities for the former, at any grapheme cluster boundary
+// for the latter.
+func visualLines(width int, str string, wrapMode WrapMode, advance func(str string) float64) iter.Seq[visualLine] {
 	// Fast path: single visual line that fits within width.
 	// Returns a cached iter.Seq to avoid closure allocation.
 	if p, _ := FirstLineBreakPositionAndLen(str); p == -1 {
-		if !autoWrap || width == math.MaxInt || advance(str) <= float64(width) {
+		if wrapMode == WrapModeNone || width == math.MaxInt || advance(str) <= float64(width) {
 			theCachedSingleVisualLineSeq.visualLine = visualLine{pos: 0, str: str}
 			return theCachedSingleVisualLineSeq.seq
 		}
@@ -159,7 +174,8 @@ func visualLines(width int, str string, autoWrap bool, advance func(str string) 
 	return func(yield func(visualLine) bool) {
 		origStr := str
 
-		if !autoWrap {
+		switch wrapMode {
+		case WrapModeNone:
 			var pos int
 			for pos < len(str) {
 				p, l := FirstLineBreakPositionAndLen(str[pos:])
@@ -180,7 +196,7 @@ func visualLines(width int, str string, autoWrap bool, advance func(str string) 
 				}
 				pos += p + l
 			}
-		} else {
+		case WrapModeWord, WrapModeAnywhere:
 			var lineStart int
 			var lineEnd int
 			var pos int
@@ -193,10 +209,8 @@ func visualLines(width int, str string, autoWrap bool, advance func(str string) 
 			// sliced.
 			str = initSegmenterWithString(seg, str)
 			origStr = str
-			it := seg.LineIterator()
-			for it.Next() {
-				l := it.Line()
-				segment := string(l.Text)
+
+			emit := func(segment string, isMandatoryBreak bool) bool {
 				if lineEnd-lineStart > 0 {
 					candidate := origStr[lineStart : lineEnd+len(segment)]
 					// TODO: Consider a line alignment and/or editable/selectable states when calculating the width.
@@ -205,22 +219,45 @@ func visualLines(width int, str string, autoWrap bool, advance func(str string) 
 							pos: pos,
 							str: origStr[lineStart:lineEnd],
 						}) {
-							return
+							return false
 						}
 						pos += lineEnd - lineStart
 						lineStart = lineEnd
 					}
 				}
 				lineEnd += len(segment)
-				if l.IsMandatoryBreak {
+				if isMandatoryBreak {
 					if !yield(visualLine{
 						pos: pos,
 						str: origStr[lineStart:lineEnd],
 					}) {
-						return
+						return false
 					}
 					pos += lineEnd - lineStart
 					lineStart = lineEnd
+				}
+				return true
+			}
+
+			if wrapMode == WrapModeWord {
+				it := seg.LineIterator()
+				for it.Next() {
+					l := it.Line()
+					if !emit(string(l.Text), l.IsMandatoryBreak) {
+						return
+					}
+				}
+			} else {
+				it := seg.GraphemeIterator()
+				for it.Next() {
+					g := it.Grapheme()
+					t := string(g.Text)
+					// A hard line break is its own grapheme cluster
+					// (CRLF stays a single cluster), so detecting a
+					// trailing break length covers all hard breaks.
+					if !emit(t, tailingLineBreakLen(t) > 0) {
+						return
+					}
 				}
 			}
 
@@ -415,17 +452,17 @@ func trimTailingLineBreak(str string) string {
 
 // visualLineCount returns the number of visual lines str produces at the
 // given width.
-func visualLineCount(width int, str string, autoWrap bool, face text.Face, tabWidth float64, keepTailingSpace bool) int {
+func visualLineCount(width int, str string, wrapMode WrapMode, face text.Face, tabWidth float64, keepTailingSpace bool) int {
 	// Fast path: single visual line that fits within width.
 	// This avoids allocating a closure for the advance function.
 	if p, _ := FirstLineBreakPositionAndLen(str); p == -1 {
-		if !autoWrap || width == math.MaxInt || advance(str, face, tabWidth, keepTailingSpace) <= float64(width) {
+		if wrapMode == WrapModeNone || width == math.MaxInt || advance(str, face, tabWidth, keepTailingSpace) <= float64(width) {
 			return 1
 		}
 	}
 
 	var count int
-	for range visualLines(width, str, autoWrap, func(str string) float64 {
+	for range visualLines(width, str, wrapMode, func(str string) float64 {
 		return advance(str, face, tabWidth, keepTailingSpace)
 	}) {
 		count++
@@ -437,13 +474,13 @@ func visualLineCount(width int, str string, autoWrap bool, face text.Face, tabWi
 // need to be computed, this avoids per-visual-line shaping calls and is
 // dramatically cheaper for very long text (e.g. a multi-megabyte editor
 // buffer).
-func MeasureHeight(width int, str string, autoWrap bool, face text.Face, lineHeight float64, tabWidth float64, keepTailingSpace bool) float64 {
-	return lineHeight * float64(visualLineCount(width, str, autoWrap, face, tabWidth, keepTailingSpace))
+func MeasureHeight(width int, str string, wrapMode WrapMode, face text.Face, lineHeight float64, tabWidth float64, keepTailingSpace bool) float64 {
+	return lineHeight * float64(visualLineCount(width, str, wrapMode, face, tabWidth, keepTailingSpace))
 }
 
-func Measure(width int, str string, autoWrap bool, face text.Face, lineHeight float64, tabWidth float64, keepTailingSpace bool, ellipsisString string) (float64, float64) {
+func Measure(width int, str string, wrapMode WrapMode, face text.Face, lineHeight float64, tabWidth float64, keepTailingSpace bool, ellipsisString string) (float64, float64) {
 	var maxWidth, height float64
-	for l := range visualLines(width, str, autoWrap, func(str string) float64 {
+	for l := range visualLines(width, str, wrapMode, func(str string) float64 {
 		return advance(str, face, tabWidth, keepTailingSpace)
 	}) {
 		vlStr := l.str
@@ -474,11 +511,11 @@ func textPositionYOffset(size image.Point, str string, options *Options) float64
 	switch options.VerticalAlign {
 	case VerticalAlignTop:
 	case VerticalAlignMiddle:
-		c := visualLineCount(size.X, str, options.AutoWrap, options.Face, options.TabWidth, options.KeepTailingSpace)
+		c := visualLineCount(size.X, str, options.WrapMode, options.Face, options.TabWidth, options.KeepTailingSpace)
 		textHeight := options.LineHeight * float64(c)
 		yOffset += (float64(size.Y) - textHeight) / 2
 	case VerticalAlignBottom:
-		c := visualLineCount(size.X, str, options.AutoWrap, options.Face, options.TabWidth, options.KeepTailingSpace)
+		c := visualLineCount(size.X, str, options.WrapMode, options.Face, options.TabWidth, options.KeepTailingSpace)
 		textHeight := options.LineHeight * float64(c)
 		yOffset += float64(size.Y) - textHeight
 	}

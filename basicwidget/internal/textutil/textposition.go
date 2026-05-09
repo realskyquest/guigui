@@ -32,7 +32,7 @@ type TextPositionParams struct {
 	// Width is the rendering width.
 	Width int
 
-	// Options carries face, lineHeight, autoWrap, alignment, tab
+	// Options carries face, lineHeight, wrap mode, alignment, tab
 	// width, etc.
 	Options *Options
 
@@ -68,8 +68,8 @@ type TextPositionParams struct {
 	// The walk is bounded by the logical-line distance between the
 	// hint and the line containing Index, so a caller that pins the
 	// hint inside its viewport pays only O(visible) typesetting per
-	// query. Used only when LineByteOffsets is set and Options.AutoWrap
-	// is true.
+	// query. Used only when LineByteOffsets is set and Options.WrapMode
+	// is not [WrapModeNone].
 	LogicalLineIndexHint int
 	VisualLineIndexHint  int
 }
@@ -121,7 +121,7 @@ func resolveCaretLine(p *TextPositionParams) (
 		// returns false before reading them, and the caller falls back
 		// to the slow path.
 		var committedSelectionLine, renderingSelectionLine string
-		if p.Options.AutoWrap && p.LineByteOffsets.LineIndexForByteOffset(p.SelectionEnd) == selectionLineIdx {
+		if p.Options.WrapMode != WrapModeNone && p.LineByteOffsets.LineIndexForByteOffset(p.SelectionEnd) == selectionLineIdx {
 			committedSelectionLine = p.CommittedTextRange(cs, ce)
 			renderingSelectionLine = p.RenderingTextRange(cs, ce+byteDelta)
 		}
@@ -131,7 +131,7 @@ func resolveCaretLine(p *TextPositionParams) (
 			LineByteOffsets:        p.LineByteOffsets,
 			SelectionStart:         p.SelectionStart,
 			SelectionEnd:           p.SelectionEnd,
-			AutoWrap:               p.Options.AutoWrap,
+			WrapMode:               p.Options.WrapMode,
 			CommittedSelectionLine: committedSelectionLine,
 			RenderingSelectionLine: renderingSelectionLine,
 			Face:                   p.Options.Face,
@@ -183,7 +183,7 @@ func resolveCaretLine(p *TextPositionParams) (
 		face:               p.Options.Face,
 		tabWidth:           p.Options.TabWidth,
 		keepTailingSpace:   p.Options.KeepTailingSpace,
-		autoWrap:           p.Options.AutoWrap,
+		wrapMode:           p.Options.WrapMode,
 		composition:        compInfo,
 	}
 
@@ -295,7 +295,7 @@ func textPositionFromIndex(width int, str string, vls iter.Seq[visualLine], inde
 		return TextPosition{}, TextPosition{}, 0
 	}
 	if vls == nil {
-		vls = visualLines(width, str, options.AutoWrap, func(str string) float64 {
+		vls = visualLines(width, str, options.WrapMode, func(str string) float64 {
 			return advance(str, options.Face, options.TabWidth, options.KeepTailingSpace)
 		})
 	}

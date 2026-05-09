@@ -95,8 +95,8 @@ func TestComputeCompositionInfo_SameLineReplacement(t *testing.T) {
 	}
 }
 
-func TestComputeCompositionInfo_CrossLineSelectionAutoWrap(t *testing.T) {
-	// AutoWrap=on with a multi-line selection. The function must reject
+func TestComputeCompositionInfo_CrossLineSelectionWrap(t *testing.T) {
+	// WrapModeWord with a multi-line selection. The function must reject
 	// (ok=false) without ever reading the selection-line fields, since
 	// the caller can't safely compute them when ce+byteDelta would
 	// underflow. Pass empty selection-line strings to verify the
@@ -109,7 +109,7 @@ func TestComputeCompositionInfo_CrossLineSelectionAutoWrap(t *testing.T) {
 		LineByteOffsets:        &offsets,
 		SelectionStart:         2, // line 0
 		SelectionEnd:           8, // line 2; byteDelta = 1 - 6 = -5
-		AutoWrap:               true,
+		WrapMode:               textutil.WrapModeWord,
 		CommittedSelectionLine: "",
 		RenderingSelectionLine: "",
 		Face:                   face,
@@ -121,8 +121,8 @@ func TestComputeCompositionInfo_CrossLineSelectionAutoWrap(t *testing.T) {
 	}
 }
 
-func TestComputeCompositionInfo_AutoWrapNoWrapChange(t *testing.T) {
-	// AutoWrap=on with a wide enough width that the composition doesn't
+func TestComputeCompositionInfo_WrapNoWrapChange(t *testing.T) {
+	// WrapModeWord with a wide enough width that the composition doesn't
 	// add any wrap → CompDelta == 0.
 	face := newTestFace(t)
 	var offsets textutil.LineByteOffsets
@@ -132,7 +132,7 @@ func TestComputeCompositionInfo_AutoWrapNoWrapChange(t *testing.T) {
 		LineByteOffsets:        &offsets,
 		SelectionStart:         2,
 		SelectionEnd:           2,
-		AutoWrap:               true,
+		WrapMode:               textutil.WrapModeWord,
 		CommittedSelectionLine: "abcdef",
 		RenderingSelectionLine: "abXYcdef",
 		Face:                   face,
@@ -147,10 +147,10 @@ func TestComputeCompositionInfo_AutoWrapNoWrapChange(t *testing.T) {
 	}
 }
 
-// uniformAutoWrapOffViewportParams returns a params skeleton for
+// uniformNoWrapViewportParams returns a params skeleton for
 // [textutil.VisibleRangeInViewport] over a 10-line, 10-byte-per-line
-// non-autoWrap document.
-func uniformAutoWrapOffViewportParams(lineHeight int) textutil.VisibleRangeInViewportParams {
+// [WrapModeNone] document.
+func uniformNoWrapViewportParams(lineHeight int) textutil.VisibleRangeInViewportParams {
 	const n = 10
 	src, lbo := makeLineSource(n, 10)
 	return textutil.VisibleRangeInViewportParams{
@@ -158,7 +158,7 @@ func uniformAutoWrapOffViewportParams(lineHeight int) textutil.VisibleRangeInVie
 		RenderingTextRange:  func(start, end int) string { return src[start:end] },
 		RenderingTextLength: len(src),
 		LineHeight:          float64(lineHeight),
-		AutoWrap:            false,
+		WrapMode:            textutil.WrapModeNone,
 		Composition:         textutil.CompositionInfo{},
 	}
 }
@@ -173,7 +173,7 @@ func TestVisibleRangeInViewport_LineCountZero(t *testing.T) {
 	}
 }
 
-func TestVisibleRangeInViewport_AutoWrapOff(t *testing.T) {
+func TestVisibleRangeInViewport_WrapModeNone(t *testing.T) {
 	cases := []struct {
 		name          string
 		anchor        int
@@ -246,7 +246,7 @@ func TestVisibleRangeInViewport_AutoWrapOff(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := uniformAutoWrapOffViewportParams(10)
+			p := uniformNoWrapViewportParams(10)
 			p.FirstLogicalLineInViewport = tc.anchor
 			p.ViewportSize.Y = tc.visibleHeight
 			r, ok := textutil.VisibleRangeInViewport(&p)
@@ -269,7 +269,7 @@ func TestVisibleRangeInViewport_AutoWrapOff(t *testing.T) {
 	}
 }
 
-func TestVisibleRangeInViewport_AutoWrapOn(t *testing.T) {
+func TestVisibleRangeInViewport_WrapModeWord(t *testing.T) {
 	// Walk forward from an anchor, measuring per-line heights with a
 	// real face. Use a narrow width to force the long middle line to
 	// wrap; verify the walker stops once the cumulative height covers
@@ -284,7 +284,7 @@ func TestVisibleRangeInViewport_AutoWrapOn(t *testing.T) {
 	// Sanity: the long middle line wraps into multiple visual lines.
 	midStart := lbo.ByteOffsetByLineIndex(1)
 	midEnd := lbo.ByteOffsetByLineIndex(2)
-	wraps := textutil.VisualLineCountForLogicalLine(narrowWidth, str[midStart:midEnd], true, face, 0, false)
+	wraps := textutil.VisualLineCountForLogicalLine(narrowWidth, str[midStart:midEnd], textutil.WrapModeWord, face, 0, false)
 	if wraps < 2 {
 		t.Fatalf("expected the middle line to wrap; got wraps=%d", wraps)
 	}
@@ -300,7 +300,7 @@ func TestVisibleRangeInViewport_AutoWrapOn(t *testing.T) {
 		ViewportSize: image.Pt(narrowWidth, int(lineHeight+lineHeight*float64(wraps))),
 		Face:         face,
 		LineHeight:   lineHeight,
-		AutoWrap:     true,
+		WrapMode:     textutil.WrapModeWord,
 	}
 	r, ok := textutil.VisibleRangeInViewport(&p)
 	if !ok {
@@ -325,7 +325,7 @@ func TestVisibleRangeInViewport_FirstLinePastCompositionLine(t *testing.T) {
 	// FirstLogicalLineInViewport sits past the composition line, so
 	// the rendering byte range for it and subsequent lines must shift
 	// by RenderingByteShift.
-	p := uniformAutoWrapOffViewportParams(10)
+	p := uniformNoWrapViewportParams(10)
 	p.Composition = textutil.CompositionInfo{
 		LineIndex:          2,
 		RenderingByteShift: 5,

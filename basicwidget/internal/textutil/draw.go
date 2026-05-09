@@ -59,7 +59,7 @@ func Draw(bounds image.Rectangle, dst *ebiten.Image, str string, options *DrawOp
 	op.GeoM.Translate(0, yOffset)
 
 	theCachedVisualLines = theCachedVisualLines[:0]
-	for vl := range visualLines(bounds.Dx(), str, options.AutoWrap, func(str string) float64 {
+	for vl := range visualLines(bounds.Dx(), str, options.WrapMode, func(str string) float64 {
 		return advance(str, options.Face, options.TabWidth, options.KeepTailingSpace)
 	}) {
 		theCachedVisualLines = append(theCachedVisualLines, vl)

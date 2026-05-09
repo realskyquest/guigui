@@ -12,9 +12,9 @@ type VisualLine struct {
 	Str string
 }
 
-func VisualLines(width int, str string, autoWrap bool, advance func(str string) float64) iter.Seq[VisualLine] {
+func VisualLines(width int, str string, wrapMode WrapMode, advance func(str string) float64) iter.Seq[VisualLine] {
 	return func(yield func(VisualLine) bool) {
-		for l := range visualLines(width, str, autoWrap, advance) {
+		for l := range visualLines(width, str, wrapMode, advance) {
 			if !yield(VisualLine{
 				Pos: l.pos,
 				Str: l.str,

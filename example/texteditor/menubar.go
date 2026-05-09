@@ -11,19 +11,19 @@ import (
 )
 
 var (
-	editorMenubarEventNew        = guigui.GenerateEventKey()
-	editorMenubarEventOpen       = guigui.GenerateEventKey()
-	editorMenubarEventSave       = guigui.GenerateEventKey()
-	editorMenubarEventSaveAs     = guigui.GenerateEventKey()
-	editorMenubarEventUndo       = guigui.GenerateEventKey()
-	editorMenubarEventRedo       = guigui.GenerateEventKey()
-	editorMenubarEventCut        = guigui.GenerateEventKey()
-	editorMenubarEventCopy       = guigui.GenerateEventKey()
-	editorMenubarEventPaste      = guigui.GenerateEventKey()
-	editorMenubarEventFind       = guigui.GenerateEventKey()
-	editorMenubarEventSelectAll  = guigui.GenerateEventKey()
-	editorMenubarEventToggleWrap = guigui.GenerateEventKey()
-	editorMenubarEventAbout      = guigui.GenerateEventKey()
+	editorMenubarEventNew         = guigui.GenerateEventKey()
+	editorMenubarEventOpen        = guigui.GenerateEventKey()
+	editorMenubarEventSave        = guigui.GenerateEventKey()
+	editorMenubarEventSaveAs      = guigui.GenerateEventKey()
+	editorMenubarEventUndo        = guigui.GenerateEventKey()
+	editorMenubarEventRedo        = guigui.GenerateEventKey()
+	editorMenubarEventCut         = guigui.GenerateEventKey()
+	editorMenubarEventCopy        = guigui.GenerateEventKey()
+	editorMenubarEventPaste       = guigui.GenerateEventKey()
+	editorMenubarEventFind        = guigui.GenerateEventKey()
+	editorMenubarEventSelectAll   = guigui.GenerateEventKey()
+	editorMenubarEventWrapModeSel = guigui.GenerateEventKey()
+	editorMenubarEventAbout       = guigui.GenerateEventKey()
 )
 
 // editorMenubar is the application's menubar widget. It wraps
@@ -41,7 +41,7 @@ type editorMenubar struct {
 	canCut   bool
 	canCopy  bool
 	canPaste bool
-	wordWrap bool
+	wrapMode basicwidget.WrapMode
 }
 
 func (m *editorMenubar) SetCanSave(b bool) {
@@ -68,8 +68,8 @@ func (m *editorMenubar) SetCanPaste(b bool) {
 	m.canPaste = b
 }
 
-func (m *editorMenubar) SetWordWrap(b bool) {
-	m.wordWrap = b
+func (m *editorMenubar) SetWrapMode(wrapMode basicwidget.WrapMode) {
+	m.wrapMode = wrapMode
 }
 
 func (m *editorMenubar) OnNew(fn func(context *guigui.Context)) {
@@ -116,8 +116,8 @@ func (m *editorMenubar) OnSelectAll(fn func(context *guigui.Context)) {
 	guigui.SetEventHandler(m, editorMenubarEventSelectAll, fn)
 }
 
-func (m *editorMenubar) OnToggleWordWrap(fn func(context *guigui.Context)) {
-	guigui.SetEventHandler(m, editorMenubarEventToggleWrap, fn)
+func (m *editorMenubar) OnWrapModeSelected(fn func(context *guigui.Context, wrapMode basicwidget.WrapMode)) {
+	guigui.SetEventHandler(m, editorMenubarEventWrapModeSel, fn)
 }
 
 func (m *editorMenubar) OnAbout(fn func(context *guigui.Context)) {
@@ -155,7 +155,9 @@ func (m *editorMenubar) Build(context *guigui.Context, adder *guigui.ChildAdder)
 			{Text: "Select All", Value: "selectall", KeyText: hotkey("A")},
 		},
 		{
-			{Text: "Word Wrap", Value: "wrap", Checked: m.wordWrap},
+			{Text: "No Wrap", Value: "wrap-none", Checked: m.wrapMode == basicwidget.WrapModeNone},
+			{Text: "Word Wrap", Value: "wrap-word", Checked: m.wrapMode == basicwidget.WrapModeWord},
+			{Text: "Wrap Anywhere", Value: "wrap-anywhere", Checked: m.wrapMode == basicwidget.WrapModeAnywhere},
 		},
 		{
 			{Text: "About", Value: "about"},
@@ -198,8 +200,15 @@ func (m *editorMenubar) Build(context *guigui.Context, adder *guigui.ChildAdder)
 			key = editorMenubarEventFind
 		case "selectall":
 			key = editorMenubarEventSelectAll
-		case "wrap":
-			key = editorMenubarEventToggleWrap
+		case "wrap-none":
+			guigui.DispatchEvent(m, editorMenubarEventWrapModeSel, basicwidget.WrapModeNone)
+			return
+		case "wrap-word":
+			guigui.DispatchEvent(m, editorMenubarEventWrapModeSel, basicwidget.WrapModeWord)
+			return
+		case "wrap-anywhere":
+			guigui.DispatchEvent(m, editorMenubarEventWrapModeSel, basicwidget.WrapModeAnywhere)
+			return
 		case "about":
 			key = editorMenubarEventAbout
 		default:

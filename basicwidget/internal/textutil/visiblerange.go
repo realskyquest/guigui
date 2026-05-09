@@ -26,22 +26,22 @@ type CompositionInfoParams struct {
 	SelectionStart int
 	SelectionEnd   int
 
-	// AutoWrap toggles the visual-Y delta measurement for the
-	// selection line. When false, RenderingYShift in the result is
-	// always 0 and the fields below are ignored.
-	AutoWrap bool
+	// WrapMode toggles the visual-Y delta measurement for the
+	// selection line. When [WrapModeNone], RenderingYShift in the result
+	// is always 0 and the fields below are ignored.
+	WrapMode WrapMode
 
 	// CommittedSelectionLine and RenderingSelectionLine are the bytes
 	// of the logical line containing the selection (SelectionStart ..
 	// SelectionEnd, which always lies within a single logical line —
 	// the function rejects multi-line selections), in committed and
-	// rendering coordinates respectively. Required when AutoWrap is
-	// true; ignored otherwise.
+	// rendering coordinates respectively. Required when WrapMode is
+	// not [WrapModeNone]; ignored otherwise.
 	CommittedSelectionLine string
 	RenderingSelectionLine string
 
 	// Face, LineHeight, TabWidth, KeepTailingSpace are passed through
-	// to [MeasureLogicalLineHeight] when AutoWrap is true.
+	// to [MeasureLogicalLineHeight] when WrapMode is not [WrapModeNone].
 	Face             text.Face
 	LineHeight       float64
 	TabWidth         float64
@@ -72,8 +72,9 @@ type CompositionInfo struct {
 
 	// RenderingYShift is added to a past-the-splice line's committed
 	// visual-Y (in pixels, top-of-line) to get its rendering visual-Y.
-	// Non-zero only when AutoWrap is on and the composition causes the
-	// selection line to wrap into a different number of visual sub-lines.
+	// Non-zero only when WrapMode is not [WrapModeNone] and the composition
+	// causes the selection line to wrap into a different number of visual
+	// sub-lines.
 	RenderingYShift int
 }
 
@@ -94,7 +95,7 @@ func ComputeCompositionInfo(p *CompositionInfoParams) (CompositionInfo, bool) {
 	byteDelta := len(p.CompositionText) - (p.SelectionEnd - p.SelectionStart)
 
 	var yDelta int
-	if p.AutoWrap {
+	if p.WrapMode != WrapModeNone {
 		// Visual height of the selection line in rendering vs
 		// committed: the only line whose wrap layout the composition
 		// can change.
@@ -102,8 +103,8 @@ func ComputeCompositionInfo(p *CompositionInfoParams) (CompositionInfo, bool) {
 		if measureWidth <= 0 {
 			measureWidth = math.MaxInt
 		}
-		committedH := MeasureLogicalLineHeight(measureWidth, p.CommittedSelectionLine, true, p.Face, p.LineHeight, p.TabWidth, p.KeepTailingSpace)
-		renderingH := MeasureLogicalLineHeight(measureWidth, p.RenderingSelectionLine, true, p.Face, p.LineHeight, p.TabWidth, p.KeepTailingSpace)
+		committedH := MeasureLogicalLineHeight(measureWidth, p.CommittedSelectionLine, p.WrapMode, p.Face, p.LineHeight, p.TabWidth, p.KeepTailingSpace)
+		renderingH := MeasureLogicalLineHeight(measureWidth, p.RenderingSelectionLine, p.WrapMode, p.Face, p.LineHeight, p.TabWidth, p.KeepTailingSpace)
 		yDelta = int(math.Ceil(renderingH)) - int(math.Ceil(committedH))
 	}
 	return CompositionInfo{
@@ -152,8 +153,8 @@ type VisibleRangeInViewportParams struct {
 	// RenderingTextRange returns rendering[start:end). The walker
 	// reads each measured line through this callback so the caller
 	// never has to materialize the full rendering text. Required when
-	// AutoWrap is true (so the walker can shape per-line content); for
-	// AutoWrap=false only RenderingTextLength is consulted.
+	// WrapMode is not [WrapModeNone] (so the walker can shape per-line
+	// content); for [WrapModeNone] only RenderingTextLength is consulted.
 	RenderingTextRange func(start, end int) string
 
 	// RenderingTextLength is the total byte length of the rendering
@@ -162,23 +163,25 @@ type VisibleRangeInViewportParams struct {
 
 	// ViewportSize describes the rendering box the walker operates
 	// against: X is the wrap width passed through to
-	// [VisualLineCountForLogicalLine] when AutoWrap is true, and Y is
-	// the distance below FirstLogicalLineInViewport's top that the
-	// visible region extends downward. The walk stops once cumulative
-	// line heights exceed Y, leaving one line of slack so the
-	// caller's inner Y clip can handle off-by-one rounding.
+	// [VisualLineCountForLogicalLine] when WrapMode is not
+	// [WrapModeNone], and Y is the distance below
+	// FirstLogicalLineInViewport's top that the visible region extends
+	// downward. The walk stops once cumulative line heights exceed Y,
+	// leaving one line of slack so the caller's inner Y clip can handle
+	// off-by-one rounding.
 	ViewportSize image.Point
 
 	// Face, LineHeight, TabWidth, KeepTailingSpace are passed through
-	// to [VisualLineCountForLogicalLine] when AutoWrap is true.
+	// to [VisualLineCountForLogicalLine] when WrapMode is not
+	// [WrapModeNone].
 	Face             text.Face
 	LineHeight       float64
 	TabWidth         float64
 	KeepTailingSpace bool
 
-	// AutoWrap toggles between a per-line shaping walk (true) and a
-	// flat LineHeight*idx arithmetic (false).
-	AutoWrap bool
+	// WrapMode toggles between a per-line shaping walk (any wrapping
+	// mode) and a flat LineHeight*idx arithmetic ([WrapModeNone]).
+	WrapMode WrapMode
 
 	// Composition is the splice info from [ComputeCompositionInfo].
 	// The zero value means "no active composition".
@@ -217,12 +220,12 @@ func VisibleRangeInViewport(p *VisibleRangeInViewportParams) (VisibleRange, bool
 		face:               p.Face,
 		tabWidth:           p.TabWidth,
 		keepTailingSpace:   p.KeepTailingSpace,
-		autoWrap:           p.AutoWrap,
+		wrapMode:           p.WrapMode,
 		composition:        p.Composition,
 	}
 
 	var lastLine int
-	if !p.AutoWrap {
+	if p.WrapMode == WrapModeNone {
 		lh := int(math.Ceil(p.LineHeight))
 		if lh <= 0 {
 			return VisibleRange{}, false

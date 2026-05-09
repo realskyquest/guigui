@@ -30,7 +30,7 @@ type TextIndexFromPositionParams struct {
 	// Width is the rendering width.
 	Width int
 
-	// Options carries face, lineHeight, autoWrap, alignment, tab
+	// Options carries face, lineHeight, wrap mode, alignment, tab
 	// width, etc.
 	Options *Options
 
@@ -101,7 +101,7 @@ func TextIndexFromPosition(p *TextIndexFromPositionParams) int {
 	// Resolve composition shifts so the committed-text sidecar is
 	// usable as-is. selectionLineVisualCountDelta carries the wrap-
 	// count difference between the rendering and committed selection
-	// lines (0 for non-autoWrap or compositions that don't change the
+	// lines (0 for [WrapModeNone] or compositions that don't change the
 	// wrap).
 	var compInfo CompositionInfo
 	var hasComp bool
@@ -121,7 +121,7 @@ func TextIndexFromPosition(p *TextIndexFromPositionParams) int {
 		// returns false before reading them, and the caller falls back
 		// below.
 		var committedSelectionLine, renderingSelectionLine string
-		if p.Options.AutoWrap && p.LineByteOffsets.LineIndexForByteOffset(p.SelectionEnd) == selectionLineIdx {
+		if p.Options.WrapMode != WrapModeNone && p.LineByteOffsets.LineIndexForByteOffset(p.SelectionEnd) == selectionLineIdx {
 			committedSelectionLine = p.CommittedTextRange(cs, ce)
 			renderingSelectionLine = p.RenderingTextRange(cs, ce+byteDelta)
 		}
@@ -131,7 +131,7 @@ func TextIndexFromPosition(p *TextIndexFromPositionParams) int {
 			LineByteOffsets:        p.LineByteOffsets,
 			SelectionStart:         p.SelectionStart,
 			SelectionEnd:           p.SelectionEnd,
-			AutoWrap:               p.Options.AutoWrap,
+			WrapMode:               p.Options.WrapMode,
 			CommittedSelectionLine: committedSelectionLine,
 			RenderingSelectionLine: renderingSelectionLine,
 			Face:                   p.Options.Face,
@@ -146,9 +146,9 @@ func TextIndexFromPosition(p *TextIndexFromPositionParams) int {
 		compInfo = info
 		hasComp = true
 
-		if p.Options.AutoWrap {
-			committedCount := VisualLineCountForLogicalLine(p.Width, committedSelectionLine, true, p.Options.Face, p.Options.TabWidth, p.Options.KeepTailingSpace)
-			renderingCount := VisualLineCountForLogicalLine(p.Width, renderingSelectionLine, true, p.Options.Face, p.Options.TabWidth, p.Options.KeepTailingSpace)
+		if p.Options.WrapMode != WrapModeNone {
+			committedCount := VisualLineCountForLogicalLine(p.Width, committedSelectionLine, p.Options.WrapMode, p.Options.Face, p.Options.TabWidth, p.Options.KeepTailingSpace)
+			renderingCount := VisualLineCountForLogicalLine(p.Width, renderingSelectionLine, p.Options.WrapMode, p.Options.Face, p.Options.TabWidth, p.Options.KeepTailingSpace)
 			selectionLineVisualCountDelta = renderingCount - committedCount
 		}
 	}
@@ -176,7 +176,7 @@ func TextIndexFromPosition(p *TextIndexFromPositionParams) int {
 		face:               p.Options.Face,
 		tabWidth:           p.Options.TabWidth,
 		keepTailingSpace:   p.Options.KeepTailingSpace,
-		autoWrap:           p.Options.AutoWrap,
+		wrapMode:           p.Options.WrapMode,
 		composition:        compInfo,
 	}
 
@@ -185,7 +185,7 @@ func TextIndexFromPosition(p *TextIndexFromPositionParams) int {
 	// hint, measuring each logical line's wrap count until the running
 	// visual offset crosses target. The hint lets the caller scope work
 	// to the viewport — without it (zero values) the walk starts from
-	// line 0 and degrades to O(documentLen). For non-autoWrap each
+	// line 0 and degrades to O(documentLen). For [WrapModeNone] each
 	// logical line is exactly one visual line so the walk is a simple
 	// add/subtract, but it still needs to step from (hintLL, hintVL)
 	// rather than treating target as an absolute line index — the
@@ -247,7 +247,7 @@ func textIndexFromPosition(width int, position image.Point, str string, options 
 	var pos int
 	var vlStr string
 	var vlIndex int
-	for l := range visualLines(width, str, options.AutoWrap, func(str string) float64 {
+	for l := range visualLines(width, str, options.WrapMode, func(str string) float64 {
 		return advance(str, options.Face, options.TabWidth, options.KeepTailingSpace)
 	}) {
 		vlStr = l.str

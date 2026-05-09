@@ -32,8 +32,8 @@ type TextInputs struct {
 	horizontalAlignSegmentedControl basicwidget.SegmentedControl[basicwidget.HorizontalAlign]
 	verticalAlignText               basicwidget.Text
 	verticalAlignSegmentedControl   basicwidget.SegmentedControl[basicwidget.VerticalAlign]
-	autoWrapText                    basicwidget.Text
-	autoWrapToggle                  basicwidget.Toggle
+	wrapModeText                    basicwidget.Text
+	wrapModeSegmentedControl        basicwidget.SegmentedControl[basicwidget.WrapMode]
 	caretBlinkingText               basicwidget.Text
 	caretBlinkingToggle             basicwidget.Toggle
 	editableText                    basicwidget.Text
@@ -142,7 +142,7 @@ func (t *TextInputs) Build(context *guigui.Context, adder *guigui.ChildAdder) er
 	t.multilineTextInput.Widget().TextInput().SetMultiline(true)
 	t.multilineTextInput.Widget().TextInput().SetHorizontalAlign(model.TextInputs().HorizontalAlign())
 	t.multilineTextInput.Widget().TextInput().SetVerticalAlign(model.TextInputs().VerticalAlign())
-	t.multilineTextInput.Widget().TextInput().SetAutoWrap(model.TextInputs().AutoWrap())
+	t.multilineTextInput.Widget().TextInput().SetWrapMode(model.TextInputs().WrapMode())
 	t.multilineTextInput.Widget().TextInput().SetEditable(model.TextInputs().Editable())
 	t.multilineTextInput.Widget().TextInput().SetCaretBlinking(model.TextInputs().IsCaretBlinking())
 	t.multilineTextInput.Widget().SetContextMenu(true)
@@ -233,11 +233,30 @@ func (t *TextInputs) Build(context *guigui.Context, adder *guigui.ChildAdder) er
 	})
 	t.verticalAlignSegmentedControl.SelectItemByValue(model.TextInputs().VerticalAlign())
 
-	t.autoWrapText.SetValue("Auto wrap")
-	t.autoWrapToggle.OnValueChanged(func(context *guigui.Context, value bool) {
-		model.TextInputs().SetAutoWrap(value)
+	t.wrapModeText.SetValue("Wrap mode")
+	t.wrapModeSegmentedControl.SetItems([]basicwidget.SegmentedControlItem[basicwidget.WrapMode]{
+		{
+			Text:  "None",
+			Value: basicwidget.WrapModeNone,
+		},
+		{
+			Text:  "Word",
+			Value: basicwidget.WrapModeWord,
+		},
+		{
+			Text:  "Anywhere",
+			Value: basicwidget.WrapModeAnywhere,
+		},
 	})
-	t.autoWrapToggle.SetValue(model.TextInputs().AutoWrap())
+	t.wrapModeSegmentedControl.OnItemSelected(func(context *guigui.Context, index int) {
+		item, ok := t.wrapModeSegmentedControl.ItemByIndex(index)
+		if !ok {
+			model.TextInputs().SetWrapMode(basicwidget.WrapModeWord)
+			return
+		}
+		model.TextInputs().SetWrapMode(item.Value)
+	})
+	t.wrapModeSegmentedControl.SelectItemByValue(model.TextInputs().WrapMode())
 
 	t.caretBlinkingText.SetValue("Caret blinking")
 	t.caretBlinkingToggle.OnValueChanged(func(context *guigui.Context, value bool) {
@@ -267,8 +286,8 @@ func (t *TextInputs) Build(context *guigui.Context, adder *guigui.ChildAdder) er
 			SecondaryWidget: &t.verticalAlignSegmentedControl,
 		},
 		{
-			PrimaryWidget:   &t.autoWrapText,
-			SecondaryWidget: &t.autoWrapToggle,
+			PrimaryWidget:   &t.wrapModeText,
+			SecondaryWidget: &t.wrapModeSegmentedControl,
 		},
 		{
 			PrimaryWidget:   &t.caretBlinkingText,

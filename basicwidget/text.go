@@ -44,6 +44,24 @@ const (
 	VerticalAlignBottom VerticalAlign = VerticalAlign(textutil.VerticalAlignBottom)
 )
 
+// WrapMode selects how visual lines wrap when text exceeds the available width.
+type WrapMode int
+
+const (
+	// WrapModeNone disables automatic wrapping; content extends past the
+	// available width and only the explicit hard line breaks in the source
+	// text introduce new visual lines.
+	WrapModeNone WrapMode = WrapMode(textutil.WrapModeNone)
+
+	// WrapModeWord wraps at Unicode line break opportunities, keeping
+	// individual words intact when possible.
+	WrapModeWord WrapMode = WrapMode(textutil.WrapModeWord)
+
+	// WrapModeAnywhere wraps at any grapheme cluster boundary, breaking
+	// inside words when needed to fit the available width.
+	WrapModeAnywhere WrapMode = WrapMode(textutil.WrapModeAnywhere)
+)
+
 var (
 	textEventValueChanged            guigui.EventKey = guigui.GenerateEventKey()
 	textEventValueChangedWithoutText guigui.EventKey = guigui.GenerateEventKey()
@@ -104,7 +122,7 @@ type Text struct {
 	selectable                  bool
 	editable                    bool
 	multiline                   bool
-	autoWrap                    bool
+	wrapMode                    WrapMode
 	caretStatic                 bool
 	keepTailingSpace            bool
 	selectionVisibleWhenUnfocus bool
@@ -134,8 +152,8 @@ type Text struct {
 
 	tmpClipboard string
 
-	cachedTextWidths      [4][4]cachedTextWidthEntry
-	cachedTextHeights     [4][4]cachedTextHeightEntry
+	cachedTextWidths      [8][4]cachedTextWidthEntry
+	cachedTextHeights     [8][4]cachedTextHeightEntry
 	cachedDefaultTabWidth float64
 	lastFaceCacheKey      faceCacheKey
 	lastScale             float64
@@ -219,13 +237,10 @@ type cachedTextHeightEntry struct {
 
 type textSizeCacheKey int
 
-func newTextSizeCacheKey(autoWrap, bold bool) textSizeCacheKey {
-	var key textSizeCacheKey
-	if autoWrap {
-		key |= 1 << 0
-	}
+func newTextSizeCacheKey(wrapMode WrapMode, bold bool) textSizeCacheKey {
+	key := textSizeCacheKey(wrapMode) & 0x3
 	if bold {
-		key |= 1 << 1
+		key |= 1 << 2
 	}
 	return key
 }
@@ -356,7 +371,7 @@ func (t *Text) WriteStateKey(w *guigui.StateKeyWriter) {
 	w.WriteBool(t.selectable)
 	w.WriteBool(t.editable)
 	w.WriteBool(t.multiline)
-	w.WriteBool(t.autoWrap)
+	w.WriteUint64(uint64(t.wrapMode))
 	w.WriteBool(t.caretStatic)
 	w.WriteBool(t.keepTailingSpace)
 	w.WriteBool(t.selectionVisibleWhenUnfocus)
@@ -931,8 +946,16 @@ func (t *Text) SetMultiline(multiline bool) {
 	t.multiline = multiline
 }
 
-func (t *Text) SetAutoWrap(autoWrap bool) {
-	t.autoWrap = autoWrap
+// WrapMode reports how visual lines wrap when text exceeds the available
+// width. The default is [WrapModeNone].
+func (t *Text) WrapMode() WrapMode {
+	return t.wrapMode
+}
+
+// SetWrapMode selects how visual lines wrap when text exceeds the available
+// width. See [WrapMode] for the available modes.
+func (t *Text) SetWrapMode(wrapMode WrapMode) {
+	t.wrapMode = wrapMode
 }
 
 // SetCaretBlinking sets whether the caret blinks.
@@ -997,7 +1020,7 @@ func (t *Text) contentBoundsForLayout(context *guigui.Context, bounds image.Rect
 	if t.vAlign == VerticalAlignTop {
 		// For Top, [Text.textContentBounds] would only tighten Max.Y, which
 		// no caller depends on beyond it staying within bounds. Skip it to
-		// avoid [Text.textHeight], which walks every logical line for autoWrap.
+		// avoid [Text.textHeight], which walks every logical line for wrapped text.
 		return bounds
 	}
 	return t.textContentBounds(context, bounds)
@@ -1212,7 +1235,7 @@ func (t *Text) restrictedTextToDraw(context *guigui.Context, textBounds, visible
 		// check returns false before reading them, and the caller falls
 		// back below.
 		var committedSelectionLine, renderingSelectionLine string
-		if t.autoWrap && t.lineByteOffsets.LineIndexForByteOffset(sEnd) == selectionLineIdx {
+		if t.wrapMode != WrapModeNone && t.lineByteOffsets.LineIndexForByteOffset(sEnd) == selectionLineIdx {
 			committedSelectionLine = t.stringValueWithRange(cs, ce)
 			renderingSelectionLine = t.stringValueForRenderingRange(cs, ce+byteDelta)
 		}
@@ -1222,7 +1245,7 @@ func (t *Text) restrictedTextToDraw(context *guigui.Context, textBounds, visible
 			LineByteOffsets:        &t.lineByteOffsets,
 			SelectionStart:         sStart,
 			SelectionEnd:           sEnd,
-			AutoWrap:               t.autoWrap,
+			WrapMode:               textutil.WrapMode(t.wrapMode),
 			CommittedSelectionLine: committedSelectionLine,
 			RenderingSelectionLine: renderingSelectionLine,
 			Face:                   t.face(context, false),
@@ -1271,7 +1294,7 @@ func (t *Text) restrictedTextToDraw(context *guigui.Context, textBounds, visible
 			LineHeight:       t.lineHeight(context),
 			TabWidth:         t.actualTabWidth(context),
 			KeepTailingSpace: t.keepTailingSpace,
-			AutoWrap:         t.autoWrap,
+			WrapMode:         textutil.WrapMode(t.wrapMode),
 			Composition:      compInfo,
 		})
 		if !ok {
@@ -1313,7 +1336,7 @@ func (t *Text) restrictedTextToDraw(context *guigui.Context, textBounds, visible
 		LineHeight:       t.lineHeight(context),
 		TabWidth:         t.actualTabWidth(context),
 		KeepTailingSpace: t.keepTailingSpace,
-		AutoWrap:         t.autoWrap,
+		WrapMode:         textutil.WrapMode(t.wrapMode),
 		Composition:      compInfo,
 	})
 	if !ok {
@@ -1691,7 +1714,7 @@ func (t *Text) Draw(context *guigui.Context, widgetBounds *guigui.WidgetBounds, 
 	}
 	face := t.face(context, false)
 	op := &t.drawOptions
-	op.Options.AutoWrap = t.autoWrap
+	op.Options.WrapMode = textutil.WrapMode(t.wrapMode)
 	op.Options.Face = face
 	op.Options.LineHeight = t.lineHeight(context)
 	op.Options.HorizontalAlign = textutil.HorizontalAlign(t.hAlign)
@@ -1771,7 +1794,7 @@ func (t *Text) textHeight(context *guigui.Context, constraints guigui.Constraint
 	}
 
 	bold := t.bold
-	key := newTextSizeCacheKey(t.autoWrap, bold)
+	key := newTextSizeCacheKey(t.wrapMode, bold)
 
 	for i := range t.cachedTextHeights[key] {
 		entry := &t.cachedTextHeights[key][i]
@@ -1799,7 +1822,7 @@ func (t *Text) textHeight(context *guigui.Context, constraints guigui.Constraint
 		// or straddles a logical-line boundary — the rendering text's
 		// logical-line shape doesn't match the committed sidecar.
 		txt := t.textToDraw(context, true)
-		h := textutil.MeasureHeight(constraintWidth, txt, t.autoWrap, t.face(context, bold), lineH, t.actualTabWidth(context), t.keepTailingSpace)
+		h := textutil.MeasureHeight(constraintWidth, txt, textutil.WrapMode(t.wrapMode), t.face(context, bold), lineH, t.actualTabWidth(context), t.keepTailingSpace)
 		hi = int(math.Ceil(h))
 	}
 
@@ -1820,7 +1843,7 @@ func (t *Text) textHeight(context *guigui.Context, constraints guigui.Constraint
 // back to [textutil.MeasureHeight] on the full rendering text in that
 // case.
 //
-// For autoWrap, walks logical lines summing per-line wrap counts via
+// For wrapped text, walks logical lines summing per-line wrap counts via
 // [textutil.VisualLineCountForLogicalLine]; reads each line through
 // the per-range field methods (committed bytes for unaffected lines,
 // rendering bytes for the composition's selection line) so no full-
@@ -1846,13 +1869,13 @@ func (t *Text) totalRenderingVisualLineCount(context *guigui.Context, width int,
 		}
 	}
 
-	// Non-autoWrap: each logical line is one visual line; composition
+	// WrapModeNone: each logical line is one visual line; composition
 	// can't change that (single-line composition keeps the line count).
-	if !t.autoWrap {
+	if t.wrapMode == WrapModeNone {
 		return n, true
 	}
 
-	// AutoWrap: walk logical lines summing per-line wrap counts.
+	// Wrapped text: walk logical lines summing per-line wrap counts.
 	// Reads the rendering content for the composition's selection line
 	// (so the wrap delta is included naturally) and committed content
 	// for everything else.
@@ -1877,7 +1900,7 @@ func (t *Text) totalRenderingVisualLineCount(context *guigui.Context, width int,
 		} else {
 			line = t.stringValueWithRange(cs, ce)
 		}
-		count += textutil.VisualLineCountForLogicalLine(measureWidth, line, true, face, tabW, keepTailing)
+		count += textutil.VisualLineCountForLogicalLine(measureWidth, line, textutil.WrapMode(t.wrapMode), face, tabW, keepTailing)
 	}
 	return count, true
 }
@@ -1939,7 +1962,7 @@ func (t *Text) totalRenderingMeasurement(context *guigui.Context, width int, bol
 		} else {
 			line = t.stringValueWithRange(cs, ce)
 		}
-		w, h := textutil.MeasureLogicalLine(measureWidth, line, t.autoWrap, face, lineH, tabW, keepTailing, ellipsisString)
+		w, h := textutil.MeasureLogicalLine(measureWidth, line, textutil.WrapMode(t.wrapMode), face, lineH, tabW, keepTailing, ellipsisString)
 		maxWidth = max(maxWidth, w)
 		height += h
 	}
@@ -1956,7 +1979,7 @@ func (t *Text) textSize(context *guigui.Context, constraints guigui.Constraints,
 	}
 
 	bold := t.bold || forceBold
-	key := newTextSizeCacheKey(t.autoWrap, bold)
+	key := newTextSizeCacheKey(t.wrapMode, bold)
 
 	var width, height int
 	var hasWidth, hasHeight bool
@@ -2012,7 +2035,7 @@ func (t *Text) textSize(context *guigui.Context, constraints guigui.Constraints,
 		// Fallback when the composition contains a hard line break or
 		// straddles logical lines.
 		txt := t.textToDraw(context, true)
-		w, h = textutil.Measure(constraintWidth, txt, t.autoWrap, t.face(context, bold), t.lineHeight(context), t.actualTabWidth(context), t.keepTailingSpace, ellipsisString)
+		w, h = textutil.Measure(constraintWidth, txt, textutil.WrapMode(t.wrapMode), t.face(context, bold), t.lineHeight(context), t.actualTabWidth(context), t.keepTailingSpace, ellipsisString)
 	}
 	// If width is 0, the text's bounds and visible bounds are empty, and nothing including its caret is rendered.
 	// Force to set a positive number as the width.
@@ -2134,7 +2157,7 @@ func (t *Text) textIndexFromPosition(context *guigui.Context, textBounds image.R
 
 	width := textContentBounds.Dx()
 	op := &textutil.Options{
-		AutoWrap:         t.autoWrap,
+		WrapMode:         textutil.WrapMode(t.wrapMode),
 		Face:             t.face(context, false),
 		LineHeight:       t.lineHeight(context),
 		HorizontalAlign:  textutil.HorizontalAlign(t.hAlign),
@@ -2184,7 +2207,7 @@ func (t *Text) textPosition(context *guigui.Context, bounds image.Rectangle, ind
 	textBounds := t.contentBoundsForLayout(context, bounds)
 	width := textBounds.Dx()
 	op := &textutil.Options{
-		AutoWrap:         t.autoWrap,
+		WrapMode:         textutil.WrapMode(t.wrapMode),
 		Face:             t.face(context, false),
 		LineHeight:       t.lineHeight(context),
 		HorizontalAlign:  textutil.HorizontalAlign(t.hAlign),
@@ -2276,7 +2299,7 @@ func (t *Text) caretPositionWithinLine(context *guigui.Context, bounds image.Rec
 	textBounds := t.contentBoundsForLayout(context, bounds)
 	width := textBounds.Dx()
 	op := &textutil.Options{
-		AutoWrap:         t.autoWrap,
+		WrapMode:         textutil.WrapMode(t.wrapMode),
 		Face:             t.face(context, false),
 		LineHeight:       t.lineHeight(context),
 		HorizontalAlign:  textutil.HorizontalAlign(t.hAlign),

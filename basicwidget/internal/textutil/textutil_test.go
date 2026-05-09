@@ -76,7 +76,7 @@ func TestNoWrapVisualLines(t *testing.T) {
 		t.Run(tc.str, func(t *testing.T) {
 			var gotPositions []int
 			var gotLines []string
-			for l := range textutil.VisualLines(0, tc.str, false, nil) {
+			for l := range textutil.VisualLines(0, tc.str, textutil.WrapModeNone, nil) {
 				gotPositions = append(gotPositions, l.Pos)
 				gotLines = append(gotLines, l.Str)
 			}
@@ -115,7 +115,7 @@ func TestAutoWrapInvalidUTF8(t *testing.T) {
 		t.Run(fmt.Sprintf("%q", s), func(t *testing.T) {
 			// Iterating must not panic. The exact line breakdown is not part
 			// of the contract; this only verifies that Lines completes.
-			for range textutil.VisualLines(100, s, true, advance) {
+			for range textutil.VisualLines(100, s, textutil.WrapModeWord, advance) {
 			}
 		})
 	}

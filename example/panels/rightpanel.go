@@ -39,7 +39,7 @@ type rightPanelContent struct {
 func (r *rightPanelContent) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 	adder.AddWidget(&r.text)
 	r.text.SetValue("Right panel: " + dummyText)
-	r.text.SetAutoWrap(true)
+	r.text.SetWrapMode(basicwidget.WrapModeWord)
 	r.text.SetSelectable(true)
 	return nil
 }

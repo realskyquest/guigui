@@ -179,7 +179,8 @@ type TextsModel struct {
 
 	horizontalAlign basicwidget.HorizontalAlign
 	verticalAlign   basicwidget.VerticalAlign
-	noWrap          bool
+	wrapMode        basicwidget.WrapMode
+	wrapModeSet     bool
 	bold            bool
 	selectable      bool
 	editable        bool
@@ -215,12 +216,16 @@ func (t *TextsModel) SetVerticalAlign(align basicwidget.VerticalAlign) {
 	t.verticalAlign = align
 }
 
-func (t *TextsModel) AutoWrap() bool {
-	return !t.noWrap
+func (t *TextsModel) WrapMode() basicwidget.WrapMode {
+	if !t.wrapModeSet {
+		return basicwidget.WrapModeWord
+	}
+	return t.wrapMode
 }
 
-func (t *TextsModel) SetAutoWrap(autoWrap bool) {
-	t.noWrap = !autoWrap
+func (t *TextsModel) SetWrapMode(wrapMode basicwidget.WrapMode) {
+	t.wrapMode = wrapMode
+	t.wrapModeSet = true
 }
 
 func (t *TextsModel) Bold() bool {
@@ -269,7 +274,8 @@ type TextInputsModel struct {
 
 	horizontalAlign basicwidget.HorizontalAlign
 	verticalAlign   basicwidget.VerticalAlign
-	noWrap          bool
+	wrapMode        basicwidget.WrapMode
+	wrapModeSet     bool
 	caretStatic     bool
 	uneditable      bool
 	disabled        bool
@@ -317,12 +323,16 @@ func (t *TextInputsModel) SetVerticalAlign(align basicwidget.VerticalAlign) {
 	t.verticalAlign = align
 }
 
-func (t *TextInputsModel) AutoWrap() bool {
-	return !t.noWrap
+func (t *TextInputsModel) WrapMode() basicwidget.WrapMode {
+	if !t.wrapModeSet {
+		return basicwidget.WrapModeWord
+	}
+	return t.wrapMode
 }
 
-func (t *TextInputsModel) SetAutoWrap(autoWrap bool) {
-	t.noWrap = !autoWrap
+func (t *TextInputsModel) SetWrapMode(wrapMode basicwidget.WrapMode) {
+	t.wrapMode = wrapMode
+	t.wrapModeSet = true
 }
 
 func (t *TextInputsModel) IsCaretBlinking() bool {

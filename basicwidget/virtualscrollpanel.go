@@ -284,7 +284,7 @@ func (p *virtualScrollPanel) forceSetTopItem(index, offset int, cancelAnimation 
 //
 // During a scroll animation the normalize walks substitute
 // estimatedItemHeight to avoid re-measuring every item the eased pixel
-// delta passes over (autoWrap text shapes each line). The settling Layout
+// delta passes over (wrapped text shapes each line). The settling Layout
 // (vAnimCount == 0) goes through apparentItemHeight again.
 //
 // viewportInner is the content area height — panel bounds minus any padding
