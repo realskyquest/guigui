@@ -128,14 +128,38 @@ type List[T comparable] struct {
 
 	abstractListItems []abstractListItem[T]
 	listItemWidgets   guigui.WidgetSlice[*listItemWidget[T]]
-	background1       listBackground1[T]
 	content           listContent[T]
-	panel             virtualScrollPanel
-	frame             listFrame
+	inner             roundedCornerWidget[*listInner[T]]
 
 	listItemHeightPlus1 int
-	headerHeight        int
-	footerHeight        int
+}
+
+type listInner[T comparable] struct {
+	guigui.DefaultWidget
+
+	background1 listBackground1[T]
+	panel       virtualScrollPanel
+	frame       listFrame
+
+	headerHeight int
+	footerHeight int
+}
+
+func (l *listInner[T]) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
+	adder.AddWidget(&l.background1)
+	adder.AddWidget(&l.panel)
+	adder.AddWidget(&l.frame)
+	return nil
+}
+
+func (l *listInner[T]) Layout(context *guigui.Context, widgetBounds *guigui.WidgetBounds, layouter *guigui.ChildLayouter) {
+	bounds := widgetBounds.Bounds()
+	bounds.Min.Y += l.headerHeight
+	bounds.Max.Y -= l.footerHeight
+
+	layouter.LayoutWidget(&l.background1, widgetBounds.Bounds())
+	layouter.LayoutWidget(&l.panel, bounds)
+	layouter.LayoutWidget(&l.frame, widgetBounds.Bounds())
 }
 
 func (l *List[T]) SetBackground(widget guigui.Widget) {
@@ -157,9 +181,10 @@ func (l *List[T]) SetMultiSelection(multi bool) {
 }
 
 func (l *List[T]) WriteStateKey(w *guigui.StateKeyWriter) {
+	inner := l.inner.Widget()
 	w.WriteInt64(int64(l.listItemHeightPlus1))
-	w.WriteInt64(int64(l.headerHeight))
-	w.WriteInt64(int64(l.footerHeight))
+	w.WriteInt64(int64(inner.headerHeight))
+	w.WriteInt64(int64(inner.footerHeight))
 }
 
 func (l *List[T]) SetItemHeight(height int) {
@@ -199,19 +224,21 @@ func (l *List[T]) SetReservesCheckmarkSpace(reserves bool) {
 }
 
 func (l *List[T]) SetHeaderHeight(height int) {
-	if l.headerHeight == height {
+	inner := l.inner.Widget()
+	if inner.headerHeight == height {
 		return
 	}
-	l.headerHeight = height
-	l.frame.SetHeaderHeight(height)
+	inner.headerHeight = height
+	inner.frame.SetHeaderHeight(height)
 }
 
 func (l *List[T]) SetFooterHeight(height int) {
-	if l.footerHeight == height {
+	inner := l.inner.Widget()
+	if inner.footerHeight == height {
 		return
 	}
-	l.footerHeight = height
-	l.frame.SetFooterHeight(height)
+	inner.footerHeight = height
+	inner.frame.SetFooterHeight(height)
 }
 
 func (l *List[T]) ItemBounds(index int) image.Rectangle {
@@ -244,13 +271,17 @@ func (l *List[T]) IsItemInViewport(index int) bool {
 }
 
 func (l *List[T]) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
-	adder.AddWidget(&l.background1)
-	adder.AddWidget(&l.panel)
-	adder.AddWidget(&l.frame)
+	inner := l.inner.Widget()
 
-	l.background1.setListContent(&l.content)
-	l.content.listPanel = &l.panel
-	l.panel.setContent(&l.content)
+	adder.AddWidget(&l.inner)
+
+	inner.background1.setListContent(&l.content)
+	l.content.listPanel = &inner.panel
+	inner.panel.setContent(&l.content)
+
+	// Sidebar style does not draw a rounded background, so there is no
+	// rounded shape to clip its contents to.
+	l.inner.SetCornderRouneded(l.content.Style() != ListStyleSidebar)
 
 	for i := range l.listItemWidgets.Len() {
 		item := l.listItemWidgets.At(i)
@@ -261,13 +292,8 @@ func (l *List[T]) Build(context *guigui.Context, adder *guigui.ChildAdder) error
 }
 
 func (l *List[T]) Layout(context *guigui.Context, widgetBounds *guigui.WidgetBounds, layouter *guigui.ChildLayouter) {
-	bounds := widgetBounds.Bounds()
-	bounds.Min.Y += l.headerHeight
-	bounds.Max.Y -= l.footerHeight
-
-	layouter.LayoutWidget(&l.background1, widgetBounds.Bounds())
-	layouter.LayoutWidget(&l.panel, bounds)
-	layouter.LayoutWidget(&l.frame, widgetBounds.Bounds())
+	layouter.LayoutWidget(&l.inner, widgetBounds.Bounds())
+	l.inner.SetRenderingBounds(widgetBounds.Bounds())
 }
 
 func (l *List[T]) SelectedItemCount() int {
@@ -370,7 +396,7 @@ func (l *List[T]) EnsureItemVisibleByIndex(index int) {
 
 func (l *List[T]) SetStyle(style ListStyle) {
 	l.content.SetStyle(style)
-	l.frame.SetStyle(style)
+	l.inner.Widget().frame.SetStyle(style)
 }
 
 func (l *List[T]) SetItemString(str string, index int) {
@@ -382,12 +408,13 @@ func (l *List[T]) setContentWidth(width int) {
 }
 
 func (l *List[T]) scrollOffset() (float64, float64) {
-	return l.panel.scrollOffset()
+	return l.inner.Widget().panel.scrollOffset()
 }
 
 func (l *List[T]) Measure(context *guigui.Context, constraints guigui.Constraints) image.Point {
+	inner := l.inner.Widget()
 	s := l.content.Measure(context, constraints)
-	s.Y += l.headerHeight + l.footerHeight
+	s.Y += inner.headerHeight + inner.footerHeight
 	return s
 }
 
