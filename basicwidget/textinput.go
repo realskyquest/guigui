@@ -113,6 +113,13 @@ func (t *TextInput) LineIndexFromTextIndexInBytes(textIndexInBytes int) int {
 	return t.textInput.LineIndexFromTextIndexInBytes(textIndexInBytes)
 }
 
+// CaretPositionAtTextIndexInBytes returns the on-screen top and bottom
+// endpoints of a caret drawn at byte offset textIndexInBytes in the text
+// value. See [Text.CaretPositionAtTextIndexInBytes] for details.
+func (t *TextInput) CaretPositionAtTextIndexInBytes(context *guigui.Context, textIndexInBytes int) (top, bottom image.Point, ok bool) {
+	return t.textInput.CaretPositionAtTextIndexInBytes(context, textIndexInBytes)
+}
+
 // ReadValueFrom resets the value to the bytes read from r until EOF.
 // See [Text.ReadValueFrom] for details.
 func (t *TextInput) ReadValueFrom(r io.Reader) (int64, error) {
@@ -413,6 +420,10 @@ func (t *textInput) LineCount() int {
 
 func (t *textInput) LineStartInBytes(lineIndex int) int {
 	return t.text.Text().LineStartInBytes(lineIndex)
+}
+
+func (t *textInput) CaretPositionAtTextIndexInBytes(context *guigui.Context, textIndexInBytes int) (top, bottom image.Point, ok bool) {
+	return t.text.Text().CaretPositionAtTextIndexInBytes(context, textIndexInBytes)
 }
 
 func (t *textInput) LineIndexFromTextIndexInBytes(textIndexInBytes int) int {

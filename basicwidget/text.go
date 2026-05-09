@@ -124,6 +124,14 @@ type Text struct {
 
 	caret textCaret
 
+	// widgetBoundsRect is captured by [Text.Layout] and provides the
+	// widget's own bounds rectangle for callers that resolve positions
+	// against it (caret rendering, [Text.CaretPositionAtTextIndexInBytes]).
+	//
+	// The value is invalid and unavailable during the Build phase, as it is
+	// only populated once [Text.Layout] runs.
+	widgetBoundsRect image.Rectangle
+
 	tmpClipboard string
 
 	cachedTextWidths      [4][4]cachedTextWidthEntry
@@ -417,10 +425,9 @@ func (t *Text) Build(context *guigui.Context, adder *guigui.ChildAdder) error {
 }
 
 func (t *Text) Layout(context *guigui.Context, widgetBounds *guigui.WidgetBounds, layouter *guigui.ChildLayouter) {
+	t.widgetBoundsRect = widgetBounds.Bounds()
 	if t.canHaveCaret() {
-		b := widgetBounds.Bounds()
-		t.caret.setTextWidgetBounds(b)
-		layouter.LayoutWidget(&t.caret, t.caretBounds(context, b))
+		layouter.LayoutWidget(&t.caret, t.caretBounds(context, t.widgetBoundsRect))
 	}
 }
 
@@ -524,6 +531,29 @@ func (t *Text) LineStartInBytes(lineIndex int) int {
 func (t *Text) LineIndexFromTextIndexInBytes(textIndexInBytes int) int {
 	t.ensureLineByteOffsets()
 	return t.lineByteOffsets.LineIndexForByteOffset(textIndexInBytes)
+}
+
+// CaretPositionAtTextIndexInBytes returns the on-screen top and bottom
+// endpoints of a caret drawn at byte offset textIndexInBytes in the text
+// value. ok is false when textIndexInBytes is out of range, or when the
+// caret's logical line is outside the current viewport.
+//
+// CaretPositionAtTextIndexInBytes is available after the layout phase.
+func (t *Text) CaretPositionAtTextIndexInBytes(context *guigui.Context, textIndexInBytes int) (top, bottom image.Point, ok bool) {
+	if t.widgetBoundsRect.Empty() {
+		return image.Point{}, image.Point{}, false
+	}
+	if textIndexInBytes < 0 || textIndexInBytes > t.field.TextLengthInBytes() {
+		return image.Point{}, image.Point{}, false
+	}
+	if !t.isLogicalLineMaybeVisible(context, t.widgetBoundsRect, textIndexInBytes) {
+		return image.Point{}, image.Point{}, false
+	}
+	pos, ok := t.textPosition(context, t.widgetBoundsRect, textIndexInBytes, false)
+	if !ok {
+		return image.Point{}, image.Point{}, false
+	}
+	return image.Pt(int(pos.X), int(pos.Top)), image.Pt(int(pos.X), int(pos.Bottom)), true
 }
 
 // findWordBoundaries returns the byte range of the word containing idx,
@@ -2478,22 +2508,10 @@ type textCaret struct {
 
 	text *Text
 
-	// textWidgetBoundsRect is the parent Text's bounds rectangle, captured by
-	// [Text.Layout]. caretPosition is resolved against this rectangle, not the
-	// textCaret's own widgetBounds.
-	//
-	// The value is invalid and unavailable during the Build phase, as it is only
-	// populated once [Text.Layout] runs.
-	textWidgetBoundsRect image.Rectangle
-
 	counter   int
 	prevAlpha float64
 	prevPos   textutil.TextPosition
 	prevOK    bool
-}
-
-func (t *textCaret) setTextWidgetBounds(rect image.Rectangle) {
-	t.textWidgetBoundsRect = rect
 }
 
 func (t *textCaret) resetCounter() {
@@ -2501,7 +2519,7 @@ func (t *textCaret) resetCounter() {
 }
 
 func (t *textCaret) Tick(context *guigui.Context, widgetBounds *guigui.WidgetBounds) error {
-	pos, ok := t.text.caretPosition(context, t.textWidgetBoundsRect)
+	pos, ok := t.text.caretPosition(context, t.text.widgetBoundsRect)
 	if t.prevPos != pos {
 		t.resetCounter()
 	}
@@ -2517,7 +2535,7 @@ func (t *textCaret) Tick(context *guigui.Context, widgetBounds *guigui.WidgetBou
 }
 
 func (t *textCaret) alpha(context *guigui.Context) float64 {
-	if _, ok := t.text.caretPosition(context, t.textWidgetBoundsRect); !ok {
+	if _, ok := t.text.caretPosition(context, t.text.widgetBoundsRect); !ok {
 		return 0
 	}
 	s, e, ok := t.text.selectionToDraw(context)
@@ -2558,7 +2576,7 @@ func (t *textCaret) Draw(context *guigui.Context, widgetBounds *guigui.WidgetBou
 		return
 	}
 	w := textCaretWidth(context)
-	region := t.textWidgetBoundsRect
+	region := t.text.widgetBoundsRect
 	region.Min.X -= w
 	region.Max.X += w
 	if !b.In(region) {
