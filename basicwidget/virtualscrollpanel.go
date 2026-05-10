@@ -711,8 +711,9 @@ func (p *virtualScrollPanel) vThumbHeight(context *guigui.Context, panelBounds i
 	if viewportItems >= float64(totalCount) {
 		return 0
 	}
-	barHeight := trackLength * viewportItems / float64(totalCount)
-	return max(barHeight, scrollThumbMinSize(context, trackLength))
+	// Pin to the minimum size in estimated mode: a proportional height
+	// would jitter as the height-sample window slides.
+	return scrollThumbMinSize(context, trackLength)
 }
 
 // bottomFracIdx returns the fracIdx reached when the last item's bottom
