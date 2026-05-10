@@ -12,7 +12,15 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/exp/textinput"
 
 	"github.com/guigui-gui/guigui/basicwidget/internal/piecetable"
+	"github.com/guigui-gui/guigui/basicwidget/internal/textutil"
 )
+
+// maxComposerSurroundingBytes caps the bytes of context handed to
+// [textinput.Composer] on either side of the selection. IMEs use surrounding
+// text for grammatical and predictive context, so a few hundred bytes is
+// plenty; without a cap, a multi-megabyte logical line would be materialized
+// and round-tripped across the OS IME bridge at every session start.
+const maxComposerSurroundingBytes = 1024
 
 // textField is the editable backing store behind [Text]. It wraps a
 // [piecetable.PieceTable] for the committed buffer and a
@@ -171,8 +179,9 @@ func commonSuffixLen(a, b string) int {
 }
 
 // lineAroundSelection returns the bytes of the current logical line on either
-// side of the selection. Both halves combined form the surrounding text the
-// IME uses for prediction and reconversion.
+// side of the selection, capped to [maxComposerSurroundingBytes] per side.
+// Both halves combined form the surrounding text the IME uses for prediction
+// and reconversion.
 func (f *textField) lineAroundSelection() (before, after string) {
 	selStart, selEnd := f.selectionStartInBytes, f.selectionEndInBytes
 	if selStart > selEnd {
@@ -180,12 +189,25 @@ func (f *textField) lineAroundSelection() (before, after string) {
 	}
 	lineStart, lineEnd := f.pieceTable.FindLineBounds(selStart, selEnd)
 
+	beforeStart := max(lineStart, selStart-maxComposerSurroundingBytes)
+	afterEnd := min(lineEnd, selEnd+maxComposerSurroundingBytes)
+
 	var sb strings.Builder
-	_, _ = f.pieceTable.WriteRangeTo(&sb, lineStart, selStart)
+	_, _ = f.pieceTable.WriteRangeTo(&sb, beforeStart, selStart)
 	before = sb.String()
 	sb.Reset()
-	_, _ = f.pieceTable.WriteRangeTo(&sb, selEnd, lineEnd)
+	_, _ = f.pieceTable.WriteRangeTo(&sb, selEnd, afterEnd)
 	after = sb.String()
+
+	// When the cap takes effect, the cut edge can land inside a multi-byte
+	// UTF-8 sequence. Drop any partial bytes so the IME never sees half a
+	// rune.
+	if beforeStart > lineStart {
+		before = textutil.TrimPartialUTF8Prefix(before)
+	}
+	if afterEnd < lineEnd {
+		after = textutil.TrimPartialUTF8Suffix(after)
+	}
 	return before, after
 }
 

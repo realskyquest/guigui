@@ -450,6 +450,53 @@ func trimTailingLineBreak(str string) string {
 	return str
 }
 
+// TrimPartialUTF8Prefix drops any continuation bytes (10xxxxxx) at the start
+// of s that would have belonged to a UTF-8 sequence sliced before s.
+func TrimPartialUTF8Prefix(s string) string {
+	for len(s) > 0 && !utf8.RuneStart(s[0]) {
+		s = s[1:]
+	}
+	return s
+}
+
+// TrimPartialUTF8Suffix drops a partial UTF-8 sequence at the end of s when
+// the slice was cut before the sequence's continuation bytes were included.
+func TrimPartialUTF8Suffix(s string) string {
+	n := len(s)
+	if n == 0 || s[n-1] < 0x80 {
+		return s
+	}
+	// Scan back through up to 4 bytes (the UTF-8 maximum) for the sequence's
+	// lead byte and check whether enough continuation bytes follow it.
+	for i := 1; i <= 4 && i <= n; i++ {
+		b := s[n-i]
+		if b < 0x80 {
+			// ASCII ends its own 1-byte sequence, so the i-1 continuation
+			// bytes the walk just passed over (s[n-i+1:n]) have no lead.
+			// Keep through the ASCII byte and drop those stray bytes.
+			return s[:n-i+1]
+		}
+		if b < 0xC0 {
+			// Continuation byte (10xxxxxx) - keep walking.
+			continue
+		}
+		var expected int
+		switch {
+		case b >= 0xF0:
+			expected = 4
+		case b >= 0xE0:
+			expected = 3
+		default: // b >= 0xC0
+			expected = 2
+		}
+		if i == expected {
+			return s
+		}
+		return s[:n-i]
+	}
+	return s
+}
+
 // visualLineCount returns the number of visual lines str produces at the
 // given width.
 func visualLineCount(width int, str string, wrapMode WrapMode, face text.Face, tabWidth float64, keepTailingSpace bool) int {

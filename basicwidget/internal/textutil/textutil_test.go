@@ -333,6 +333,161 @@ func TestFirstLineBreakPositionAndLen(t *testing.T) {
 	}
 }
 
+func TestTrimPartialUTF8Prefix(t *testing.T) {
+	testCases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "empty",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "all ASCII",
+			in:   "abc",
+			want: "abc",
+		},
+		{
+			name: "valid multibyte at start",
+			in:   "\xc3\xa9abc",
+			want: "\xc3\xa9abc",
+		},
+		// "\xa9" alone is a continuation byte (10xxxxxx) that lost its lead.
+		{
+			name: "single stray continuation",
+			in:   "\xa9abc",
+			want: "abc",
+		},
+		// Two leading continuation bytes (3-byte sequence cut in half).
+		{
+			name: "two stray continuations",
+			in:   "\xa8\xa9abc",
+			want: "abc",
+		},
+		// Three leading continuation bytes (4-byte sequence cut after lead).
+		{
+			name: "three stray continuations",
+			in:   "\xa8\xa9\xaaabc",
+			want: "abc",
+		},
+		// All-continuation strings get fully trimmed.
+		{
+			name: "only continuations",
+			in:   "\xa8\xa9",
+			want: "",
+		},
+		// Lead byte at the start is kept (the function only strips
+		// continuation bytes).
+		{
+			name: "lead at start",
+			in:   "\xc3abc",
+			want: "\xc3abc",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := textutil.TrimPartialUTF8Prefix(tc.in); got != tc.want {
+				t.Errorf("TrimPartialUTF8Prefix(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTrimPartialUTF8Suffix(t *testing.T) {
+	testCases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "empty",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "all ASCII",
+			in:   "abc",
+			want: "abc",
+		},
+		// Complete sequences at the end stay.
+		{
+			name: "complete 2-byte",
+			in:   "abc\xc3\xa9",
+			want: "abc\xc3\xa9",
+		},
+		{
+			name: "complete 3-byte",
+			in:   "abc\xe2\x98\x83",
+			want: "abc\xe2\x98\x83",
+		},
+		{
+			name: "complete 4-byte",
+			in:   "abc\xf0\x9f\x98\x80",
+			want: "abc\xf0\x9f\x98\x80",
+		},
+		// Trailing lone lead byte: drop it.
+		{
+			name: "lone 2-byte lead",
+			in:   "abc\xc3",
+			want: "abc",
+		},
+		{
+			name: "lone 3-byte lead",
+			in:   "abc\xe2",
+			want: "abc",
+		},
+		{
+			name: "lone 4-byte lead",
+			in:   "abc\xf0",
+			want: "abc",
+		},
+		// 3-byte sequence with only one continuation byte: drop both.
+		{
+			name: "truncated 3-byte",
+			in:   "abc\xe2\x98",
+			want: "abc",
+		},
+		// 4-byte sequence with two of three continuation bytes: drop all three.
+		{
+			name: "truncated 4-byte",
+			in:   "abc\xf0\x9f\x98",
+			want: "abc",
+		},
+		// ASCII followed by stray continuation bytes: keep through ASCII.
+		{
+			name: "ASCII then stray cont",
+			in:   "abc\x80",
+			want: "abc",
+		},
+		{
+			name: "ASCII then 2 stray cont",
+			in:   "abc\x80\x80",
+			want: "abc",
+		},
+		{
+			name: "ASCII then 3 stray cont",
+			in:   "abc\x80\x80\x80",
+			want: "abc",
+		},
+		// Invalid lead byte (>= 0xF8) treated as a 4-byte lead and stripped
+		// when its continuation bytes don't follow.
+		{
+			name: "invalid lead alone",
+			in:   "abc\xff",
+			want: "abc",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := textutil.TrimPartialUTF8Suffix(tc.in); got != tc.want {
+				t.Errorf("TrimPartialUTF8Suffix(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLastLineBreakPositionAndLen(t *testing.T) {
 	testCases := []struct {
 		str        string
