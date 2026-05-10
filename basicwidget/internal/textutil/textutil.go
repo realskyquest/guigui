@@ -8,6 +8,7 @@ import (
 	"image"
 	"iter"
 	"math"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -128,8 +129,69 @@ const (
 	VerticalAlignBottom
 )
 
-func visibleCulsters(str string, face text.Face) []text.Glyph {
-	return text.AppendGlyphs(nil, str, face, nil)
+// appendVisibleGlyphs appends the shaped clusters of str to glyphs. Each '\t'
+// is emitted as a synthetic [text.Glyph] (Image == nil) whose AdvanceX spans
+// to the next tab stop.
+func appendVisibleGlyphs(glyphs []text.Glyph, str string, face text.Face, tabWidth float64) []text.Glyph {
+	var originX float64
+	var byteOffset int
+	for {
+		head, tail, ok := strings.Cut(str, "\t")
+		before := len(glyphs)
+		glyphs = text.AppendGlyphs(glyphs, head, face, nil)
+		for i := before; i < len(glyphs); i++ {
+			glyphs[i].StartIndexInBytes += byteOffset
+			glyphs[i].EndIndexInBytes += byteOffset
+			glyphs[i].OriginX += originX
+			glyphs[i].X += originX
+		}
+		byteOffset += len(head)
+		if !ok {
+			break
+		}
+		// The guard handles empty heads (leading or consecutive tabs)
+		// where AppendGlyphs returned nothing.
+		tabStart := originX
+		if n := len(glyphs); n > before {
+			last := glyphs[n-1]
+			tabStart = last.OriginX + last.AdvanceX
+		}
+		nextX := nextIndentPosition(tabStart, tabWidth)
+		glyphs = append(glyphs, text.Glyph{
+			StartIndexInBytes: byteOffset,
+			EndIndexInBytes:   byteOffset + 1,
+			OriginX:           tabStart,
+			AdvanceX:          nextX - tabStart,
+		})
+		byteOffset++
+		originX = nextX
+		str = tail
+	}
+	return glyphs
+}
+
+// indexFromXInVisualLine returns the byte index within vlStr at the cluster
+// boundary nearest target, where target is the click X measured from the
+// visual line's left edge.
+func indexFromXInVisualLine(vlStr string, target float64, options *Options) int {
+	theCachedGlyphs = appendVisibleGlyphs(theCachedGlyphs[:0], vlStr, options.Face, options.TabWidth)
+	// Drop image refs on exit so the pooled slice doesn't pin glyph bitmaps.
+	defer func() {
+		theCachedGlyphs = slices.Delete(theCachedGlyphs, 0, len(theCachedGlyphs))
+	}()
+	var origin float64
+	if len(theCachedGlyphs) > 0 {
+		origin = theCachedGlyphs[0].OriginX
+	}
+	var prevA float64
+	for _, c := range theCachedGlyphs {
+		a := c.OriginX + c.AdvanceX - origin
+		if target < (prevA + (a-prevA)/2) {
+			return c.StartIndexInBytes
+		}
+		prevA = a
+	}
+	return len(vlStr) - tailingLineBreakLen(vlStr)
 }
 
 // visualLine is one rendered row of pixels: the unit yielded by visualLines

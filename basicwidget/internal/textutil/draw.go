@@ -55,6 +55,10 @@ func drawTextLine(dst *ebiten.Image, str string, face text.Face, op *text.DrawOp
 		panic("textutil: drawTextLine requires op.GeoM to be a pure translation")
 	}
 	theCachedGlyphs = text.AppendGlyphs(theCachedGlyphs[:0], str, face, &op.LayoutOptions)
+	// Drop image refs on exit so the pooled slice doesn't pin glyph bitmaps.
+	defer func() {
+		theCachedGlyphs = slices.Delete(theCachedGlyphs, 0, len(theCachedGlyphs))
+	}()
 	tx := op.GeoM.Element(0, 2)
 	ty := op.GeoM.Element(1, 2)
 	var drawOp ebiten.DrawImageOptions

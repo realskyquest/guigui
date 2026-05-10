@@ -181,21 +181,6 @@ func TextIndexFromPositionInLogicalLine(width int, position image.Point, logical
 
 	// Determine the index within the visual line.
 	left := oneLineLeft(width, vlStr, options.Face, options.HorizontalAlign, options.TabWidth, options.KeepTailingSpace)
-	var prevA float64
-	var clusterFound bool
-	for _, c := range visibleCulsters(vlStr, options.Face) {
-		a := advance(vlStr[:c.EndIndexInBytes], options.Face, options.TabWidth, true)
-		if (float64(position.X) - left) < (prevA + (a-prevA)/2) {
-			pos += c.StartIndexInBytes
-			clusterFound = true
-			break
-		}
-		prevA = a
-	}
-	if !clusterFound {
-		pos += len(vlStr)
-		pos -= tailingLineBreakLen(vlStr)
-	}
-
+	pos += indexFromXInVisualLine(vlStr, float64(position.X)-left, options)
 	return pos
 }
