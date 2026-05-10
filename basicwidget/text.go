@@ -2578,7 +2578,9 @@ func (t *textCaret) Tick(context *guigui.Context, widgetBounds *guigui.WidgetBou
 }
 
 func (t *textCaret) alpha(context *guigui.Context) float64 {
-	if _, ok := t.text.caretPosition(context, t.text.widgetBoundsRect); !ok {
+	// prevOK reflects the current tick: Tick refreshes it before alpha
+	// is called, and Draw runs after Tick in the same tick.
+	if !t.prevOK {
 		return 0
 	}
 	s, e, ok := t.text.selectionToDraw(context)
