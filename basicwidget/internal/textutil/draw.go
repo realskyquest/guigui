@@ -35,16 +35,59 @@ type DrawOptions struct {
 	ActiveCompositionColor   color.Color
 	CompositionBorderWidth   float32
 
-	// VisibleBounds, when non-empty, restricts per-line drawing to lines that
-	// intersect this rectangle. Lines fully above or below are skipped without
-	// shaping, which matters for very long text whose [bounds] greatly exceed
-	// the on-screen viewport. When empty, [bounds] is used (back-compatible).
+	// VisibleBounds restricts drawing to lines and glyphs that intersect this
+	// rectangle. Lines fully above or below are skipped without shaping, and
+	// glyphs whose drawn rectangle falls entirely outside are not submitted to
+	// [(*ebiten.Image).DrawImage]. An empty rectangle draws nothing.
 	VisibleBounds image.Rectangle
 }
 
-var theCachedVisualLines []visualLine
+var (
+	theCachedVisualLines []visualLine
+	theCachedGlyphs      []text.Glyph
+)
+
+// drawTextLine draws str, skipping glyphs that don't overlap visibleBounds.
+// op.GeoM must be a pure translation; drawTextLine panics otherwise.
+func drawTextLine(dst *ebiten.Image, str string, face text.Face, op *text.DrawOptions, visibleBounds image.Rectangle) {
+	if op.GeoM.Element(0, 0) != 1 || op.GeoM.Element(0, 1) != 0 ||
+		op.GeoM.Element(1, 0) != 0 || op.GeoM.Element(1, 1) != 1 {
+		panic("textutil: drawTextLine requires op.GeoM to be a pure translation")
+	}
+	theCachedGlyphs = text.AppendGlyphs(theCachedGlyphs[:0], str, face, &op.LayoutOptions)
+	tx := op.GeoM.Element(0, 2)
+	ty := op.GeoM.Element(1, 2)
+	var drawOp ebiten.DrawImageOptions
+	drawOp.ColorScale = op.ColorScale
+	drawOp.Filter = op.Filter
+	drawOp.Blend = op.Blend
+	for _, g := range theCachedGlyphs {
+		if g.Image == nil {
+			continue
+		}
+		b := g.Image.Bounds()
+		x0 := tx + g.X
+		y0 := ty + g.Y
+		glyphRect := image.Rect(
+			int(math.Floor(x0)),
+			int(math.Floor(y0)),
+			int(math.Ceil(x0+float64(b.Dx()))),
+			int(math.Ceil(y0+float64(b.Dy()))),
+		)
+		if !glyphRect.Overlaps(visibleBounds) {
+			continue
+		}
+		drawOp.GeoM.Reset()
+		drawOp.GeoM.Translate(g.X, g.Y)
+		drawOp.GeoM.Concat(op.GeoM)
+		dst.DrawImage(g.Image, &drawOp)
+	}
+}
 
 func Draw(bounds image.Rectangle, dst *ebiten.Image, str string, options *DrawOptions) {
+	if options.VisibleBounds.Empty() {
+		return
+	}
 	op := &text.DrawOptions{}
 	op.GeoM.Translate(float64(bounds.Min.X), float64(bounds.Min.Y))
 	op.ColorScale.ScaleWithColor(options.TextColor)
@@ -65,12 +108,8 @@ func Draw(bounds image.Rectangle, dst *ebiten.Image, str string, options *DrawOp
 		theCachedVisualLines = append(theCachedVisualLines, vl)
 	}
 
-	clipMinY := bounds.Min.Y
-	clipMaxY := bounds.Max.Y
-	if !options.VisibleBounds.Empty() {
-		clipMinY = max(clipMinY, options.VisibleBounds.Min.Y)
-		clipMaxY = min(clipMaxY, options.VisibleBounds.Max.Y)
-	}
+	clipMinY := max(bounds.Min.Y, options.VisibleBounds.Min.Y)
+	clipMaxY := min(bounds.Max.Y, options.VisibleBounds.Max.Y)
 
 	for _, vl := range theCachedVisualLines {
 		y := op.GeoM.Element(1, 2)
@@ -180,7 +219,7 @@ func Draw(bounds image.Rectangle, dst *ebiten.Image, str string, options *DrawOp
 			default:
 				op.PrimaryAlign = text.AlignStart
 			}
-			text.Draw(dst, vlStr, options.Face, op)
+			drawTextLine(dst, vlStr, options.Face, op, options.VisibleBounds)
 		} else {
 			op.PrimaryAlign = text.AlignStart
 			x := oneLineLeft(bounds.Dx(), vlStr, options.Face, options.HorizontalAlign, options.TabWidth, options.KeepTailingSpace)
@@ -188,7 +227,7 @@ func Draw(bounds image.Rectangle, dst *ebiten.Image, str string, options *DrawOp
 			var origX float64
 			for {
 				head, tail, ok := strings.Cut(vlStr, "\t")
-				text.Draw(dst, head, options.Face, op)
+				drawTextLine(dst, head, options.Face, op, options.VisibleBounds)
 				if !ok {
 					break
 				}
