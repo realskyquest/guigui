@@ -347,15 +347,16 @@ func visualLines(width int, str string, wrapMode WrapMode, advance func(str stri
 }
 
 func oneLineLeft(width int, vlStr string, face text.Face, hAlign HorizontalAlign, tabWidth float64, keepTailingSpace bool) float64 {
-	w := advance(vlStr[:len(vlStr)-tailingLineBreakLen(vlStr)], face, tabWidth, keepTailingSpace)
 	switch hAlign {
 	case HorizontalAlignStart, HorizontalAlignLeft:
 		// For RTL languages, HorizontalAlignStart should be the same as HorizontalAlignRight.
 		return 0
 	case HorizontalAlignCenter:
+		w := advance(vlStr[:len(vlStr)-tailingLineBreakLen(vlStr)], face, tabWidth, keepTailingSpace)
 		return (float64(width) - w) / 2
 	case HorizontalAlignEnd, HorizontalAlignRight:
 		// For RTL languages, HorizontalAlignEnd should be the same as HorizontalAlignLeft.
+		w := advance(vlStr[:len(vlStr)-tailingLineBreakLen(vlStr)], face, tabWidth, keepTailingSpace)
 		return float64(width) - w
 	default:
 		panic(fmt.Sprintf("textutil: invalid HorizontalAlign: %d", hAlign))
