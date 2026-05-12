@@ -138,6 +138,7 @@ type Text struct {
 	bold          bool
 	tabular       bool
 	tabWidth      float64
+	font          *Font
 
 	selectable                  bool
 	editable                    bool
@@ -402,6 +403,11 @@ func (t *Text) WriteStateKey(w *guigui.StateKeyWriter) {
 	w.WriteInt(selEnd)
 	w.WriteBool(t.field.IsFocused())
 	w.WriteString(t.cachedLocalesString)
+	var fontID uint64
+	if t.font != nil {
+		fontID = t.font.id
+	}
+	w.WriteUint64(fontID)
 	ch := t.contentHashForStateKey()
 	w.WriteUint64(ch.Lo)
 	w.WriteUint64(ch.Hi)
@@ -877,6 +883,12 @@ func (t *Text) SetBold(bold bool) {
 	t.bold = bold
 }
 
+// SetFont sets the [Font] used to render the Text. Passing nil restores the
+// default behavior of rendering with the registered face source stack.
+func (t *Text) SetFont(font *Font) {
+	t.font = font
+}
+
 func (t *Text) SetTabular(tabular bool) {
 	t.tabular = tabular
 }
@@ -1063,6 +1075,7 @@ func (t *Text) faceCacheKey(context *guigui.Context, forceBold bool) faceCacheKe
 		lang = context.FirstLocale()
 	}
 	return faceCacheKey{
+		font:   t.font,
 		size:   size,
 		weight: weight,
 		liga:   liga,

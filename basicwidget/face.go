@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	_ "embed"
 	"slices"
+	"sync/atomic"
 
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"golang.org/x/text/language"
@@ -56,7 +57,51 @@ var (
 	tagTnum = text.MustParseTag("tnum")
 )
 
+// FontOptions controls how a [Font] resolves glyphs.
+type FontOptions struct {
+	// DisableFallback disables the fallback chain (custom face sources set
+	// by [SetFaceSources], entries registered by [RegisterFonts], and the
+	// bundled default face). A Font with DisableFallback=true renders only
+	// using its own entries.
+	DisableFallback bool
+}
+
+// Font is an immutable ordered list of [FaceSourceEntry] values, optionally
+// followed by the registered fallback stack. Size, weight, language, and
+// OpenType features are not part of a Font; they are applied at render time
+// by the consuming widget. A Text renders with a specific Font via
+// [Text.SetFont].
+type Font struct {
+	id          uint64
+	entries     []FaceSourceEntry
+	useFallback bool
+}
+
+var theNextFontID atomic.Uint64
+
+// NewFont returns a Font that renders using entries. A nil opts is treated
+// the same as the zero [FontOptions].
+func NewFont(entries []FaceSourceEntry, opts *FontOptions) *Font {
+	var disableFallback bool
+	if opts != nil {
+		disableFallback = opts.DisableFallback
+	}
+	return &Font{
+		id:          theNextFontID.Add(1),
+		entries:     append([]FaceSourceEntry(nil), entries...),
+		useFallback: !disableFallback,
+	}
+}
+
+// ID returns a unique identifier for the Font. The identifier is stable
+// across the Font's lifetime and distinct from all other Fonts in the
+// same process.
+func (f *Font) ID() uint64 {
+	return f.id
+}
+
 type faceCacheKey struct {
+	font   *Font
 	size   float64
 	weight text.Weight
 	liga   bool
@@ -92,7 +137,14 @@ func fontFace(context *guigui.Context, key faceCacheKey) text.Face {
 	}
 
 	tmpFaceSourceEntries = slices.Delete(tmpFaceSourceEntries, 0, len(tmpFaceSourceEntries))
-	tmpFaceSourceEntries = appendFontFaceEntries(tmpFaceSourceEntries, context)
+	if key.font != nil {
+		tmpFaceSourceEntries = append(tmpFaceSourceEntries, key.font.entries...)
+		if key.font.useFallback {
+			tmpFaceSourceEntries = appendFontFaceEntries(tmpFaceSourceEntries, context)
+		}
+	} else {
+		tmpFaceSourceEntries = appendFontFaceEntries(tmpFaceSourceEntries, context)
+	}
 
 	var fs []text.Face
 	for _, entry := range tmpFaceSourceEntries {

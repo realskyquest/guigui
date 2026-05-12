@@ -186,6 +186,12 @@ func (t *TextInput) SetTabular(tabular bool) {
 	t.textInput.SetTabular(tabular)
 }
 
+// SetFont sets the [Font] used to render the text. Passing nil restores the
+// default behavior of rendering with the registered face source stack.
+func (t *TextInput) SetFont(font *Font) {
+	t.textInput.SetFont(font)
+}
+
 func (t *TextInput) IsEditable() bool {
 	return t.textInput.IsEditable()
 }
@@ -491,6 +497,10 @@ func (t *textInput) SetSelection(start, end int) {
 
 func (t *textInput) SetTabular(tabular bool) {
 	t.text.Text().SetTabular(tabular)
+}
+
+func (t *textInput) SetFont(font *Font) {
+	t.text.Text().SetFont(font)
 }
 
 func (t *textInput) IsEditable() bool {
